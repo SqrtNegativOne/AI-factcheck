@@ -1,2 +1,2 @@
 # AI-factcheck
-Crude (but modular) AI factchecking implementation
+Crude,AI factchecking implementation
