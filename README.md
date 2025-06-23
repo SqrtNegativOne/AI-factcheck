@@ -1,2 +1,4 @@
 # AI-factcheck
-Crude,AI factchecking implementation
+Crude, simple, and modular AI factchecking implementation.
+
+![Pipeline](./meta/diagram.png)
