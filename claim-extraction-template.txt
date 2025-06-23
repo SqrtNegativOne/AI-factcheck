@@ -1,0 +1,16 @@
+Summarize blocked text into distinct bullet-pointed claims, according to the following instructions:
+- Be concise.
+- Make sure each claim is a self-contained statement that can be understood independently; don't use pronouns or references to other claims.
+    - For example, instead of "This crisis is real," write "The global warming crisis is real."
+    - Instead of "This hysteria might lead to restrictions," write "Global warming hysteria might lead to restrictions." 
+    - Be specific about what you are referring to in each claim.
+- Make sure every statement is unique and not a repetition of another claim in different words.
+- Don't start the claim with "The speaker says" or "The speaker suggests" or "The text advises" or similar phrases; just list the claim directly.
+- If there is no text, return an empty list.
+
+Text:
+```
+{text}
+```
+
+{format_instructions}
