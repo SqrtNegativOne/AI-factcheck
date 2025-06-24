@@ -212,7 +212,7 @@ def print_list(lst: list[str]) -> None:
         print(f"{i}. {v}")
     print()
 
-def findings(claims: list[str], sources_urls: list[str], contradictions: list[Contradiction], unverified_veracities: list[int], source_claim_count: int) -> None:
+def findings(claims: list[str], sources_urls: set[str], contradictions: list[Contradiction], unverified_veracities: list[int], source_claim_count: int) -> None:
     print("\nClaims made by the article:")
     print_list(claims)
 
@@ -221,7 +221,7 @@ def findings(claims: list[str], sources_urls: list[str], contradictions: list[Co
         if DEBUG_MODE: print("or the claim extractor and source finder isn't/aren't working properly idk")
         return
     print(f"Sources used:")
-    print_list(sources_urls)
+    print_list(list(sources_urls))
     print(f"Source claims extracted: {source_claim_count}")
 
     if not contradictions:
@@ -282,7 +282,7 @@ def main():
                         print(f"\n=> Claim '{claim}' is supported by source '{source_url}': {source_claim}")
                     break
                 elif relation == Relation.CONTRADICTION:
-                    contradictions.append(Contradiction(claim=claim, source_url=source_url, source_claim=source_claim))
+                    contradictions.append(Contradiction(claim=claim, source_url=HttpUrl(source_url), source_claim=source_claim))
                     verified_veracity = True
                     if DEBUG_MODE:
                         print(f"\n=> Claim '{claim}' is contradicted by source '{source_url}': {source_claim}")
