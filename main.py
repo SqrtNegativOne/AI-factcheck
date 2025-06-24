@@ -28,14 +28,14 @@ import newspaper
 DEBUG_MODE: bool = True
 DEMO_MODE: bool = False # if True, the program will use hardcoded text instead of loading it from URLs
 
-load_dotenv(r"C:\Users\arkma\Sqrt-1\putting the pro in programming\0. Ongoing Projects\claim-extraction\.env")
-SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "")
-
 BASE_DIR: Path = Path(__file__).parent
 RELIABLE_SOURCES_PATH: Path = BASE_DIR / "data" / "reliable-sources.pkl"
 SAMPLE_INPUT_PATH: Path = BASE_DIR / "data" / "sample-input.txt"
 SAMPLE_SOURCE_TEXTS_PATH: Path = BASE_DIR / "data" / "sample-source-texts.txt"
 CLAIM_EXTRACTION_TEMPLATE_PATH: Path = BASE_DIR / "data" / "claim-extraction-template.txt"
+
+load_dotenv(BASE_DIR / ".env")
+SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "")
 
 INPUT_URL = "https://edition.cnn.com/2023/10/29/sport/nfl-week-8-how-to-watch-spt-intl/index.html" #"https://www.theguardian.com/science/brain-flapping/2014/nov/25/climate-change-is-an-obvious-myth-how-much-more-evidence-do-you-need" # must not be same as EXAMPLE_URL
 EXAMPLE_URL = "https://example.com"
@@ -157,7 +157,7 @@ class HuggingFaceNLIModel(NLIModel):
         with torch.no_grad():
             logits = self.model(**inputs).logits
             probs = F.softmax(logits, dim=-1)
-        return [Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT][probs.argmax().item()]
+        return (Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT)[probs.argmax().item()]
 
 
 def load_text(url: str) -> str:
