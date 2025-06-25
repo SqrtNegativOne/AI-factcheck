@@ -123,4 +123,3 @@ class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
 
         flattened_result: list[str] = [claim for sublist in result for claim in sublist]
         return flattened_result
-
