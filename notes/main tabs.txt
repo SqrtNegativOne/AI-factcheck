@@ -77,6 +77,7 @@ apparently this has been tried out before
 https://chatgpt.com/c/685e33d6-e86c-8002-b671-193b0fac167e
 
 
+
 from 2025-06-29
 Are there any other systems related to FACTCHECKGPT, FACTOOL, SAFE, and FIRE?...
 https://www.perplexity.ai/search/are-there-any-other-systems-re-kHkmeqzXRV26ugeYi6A_Vg
@@ -89,6 +90,9 @@ https://fever.ai/
 
 Fact Extraction and VERification
 https://fever.ai/dataset/fever.html
+
+
+https://arxiv.org/pdf/2403.18671
 
 
 
