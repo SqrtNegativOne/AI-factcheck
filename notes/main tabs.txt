@@ -77,6 +77,21 @@ apparently this has been tried out before
 https://chatgpt.com/c/685e33d6-e86c-8002-b671-193b0fac167e
 
 
+from 2025-06-29
+Are there any other systems related to FACTCHECKGPT, FACTOOL, SAFE, and FIRE?...
+https://www.perplexity.ai/search/are-there-any-other-systems-re-kHkmeqzXRV26ugeYi6A_Vg
+
+[1910.02655] BERT for Evidence Retrieval and Claim Verification
+https://arxiv.org/abs/1910.02655?utm_source=chatgpt.com
+
+Fact Extraction and VERification
+https://fever.ai/
+
+Fact Extraction and VERification
+https://fever.ai/dataset/fever.html
+
+
+
 
 from very very long ago:
 What are some claim extraction methods from text to extract all the claims out...

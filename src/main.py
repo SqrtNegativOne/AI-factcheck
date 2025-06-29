@@ -29,6 +29,31 @@ def lookup_source_bias(news_url):
     for k, v in results.items():
         print(f"{k.capitalize()}: {v}")
 
+def generate_atomic_claims_from_url(url: str) -> list[str]:
+    text_loader = other_models.NewspaperTextLoader()
+    full_text: str = text_loader.load_text(url)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    text_chunks = text_splitter.split_text(full_text)
+
+    claim_extractor: claim_extraction_models.ClaimExtractor = claim_extraction_models.OllamaClaimExtractor(model_name='qwen:7b-chat')
+    claims: list[str] = []
+    for chunk in text_chunks:
+        if DEBUG_MODE:
+            print(f"\n=> Processing text chunk:\n{chunk}\n")
+        claims.extend(claim_extractor.extract_claims(chunk))
+    
+    claim_decontextualiser = claim_extraction_models.NonDecontextualiser()
+    context_before, context_after = 5, 1
+    for i, claim in enumerate(claims):
+        before = "".join(claims[max(0, i - context_before):i])
+        after = "".join(claims[i + 1:i + context_after + 1]) if i + 1 < len(claims) else ""
+        claims[i] = claim_decontextualiser.decontextualise(before, claim, after)
+    
+    claim_falsifiability_checker = claim_extraction_models.NonFalsifiabilityChecker()
+    claims = [claim for claim in claims if claim_falsifiability_checker.is_falsifiable(claim)]
+
+    return claims
+
 def verify_atomic_claim(atomic_claim: str, text_loader: other_models.TextFromURLLoader) -> Relation:
     # https://github.com/mbzuai-nlp/fire/blob/main/eval/fire/verify_atomic_claim.py
 
@@ -109,37 +134,16 @@ def main():
         lookup_source_bias(INPUT_URL)
 
     # Main algorithm
-    text_loader = other_models.NewspaperTextLoader()
-    full_text: str = text_loader.load_text(INPUT_URL)
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    text_chunks = text_splitter.split_text(full_text)
-
-    claim_extractor: claim_extraction_models.ClaimExtractor = claim_extraction_models.OllamaClaimExtractor(model_name='qwen:7b-chat')
-    claims: list[str] = []
-    for chunk in text_chunks:
-        if DEBUG_MODE:
-            print(f"\n=> Processing text chunk:\n{chunk}\n")
-        claims.extend(claim_extractor.extract_claims(chunk))
-    
-    claim_decontextualiser = claim_extraction_models.NonDecontextualiser()
-    context_before, context_after = 5, 1
-    for i, claim in enumerate(claims):
-        before = "".join(claims[max(0, i - context_before):i])
-        after = "".join(claims[i + 1:i + context_after + 1]) if i + 1 < len(claims) else ""
-        claims[i] = claim_decontextualiser.decontextualise(before, claim, after)
-    
-    claim_falsifiability_checker = claim_extraction_models.NonFalsifiabilityChecker()
-    claims = [claim for claim in claims if claim_falsifiability_checker.is_falsifiable(claim)]
-
     contradictions: list[Contradiction] = []
     sources_urls = set()
     source_claim_count = 0
     source_url_claims: dict[str, list[str]] = {} # Cache claims for each source URL to avoid re-extraction
     unverified_veracities: list[int] = []
 
+    claims = generate_atomic_claims_from_url(INPUT_URL)
+
     for claim_index, claim in enumerate(claims):
         status = verify_atomic_claim(claim, text_loader)
-
 
     findings(claims, sources_urls, contradictions, unverified_veracities, source_claim_count)
 
