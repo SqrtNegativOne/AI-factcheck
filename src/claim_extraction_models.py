@@ -3,6 +3,17 @@ from abc import ABC, abstractmethod
 from langchain.prompts import PromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 from langchain_ollama import OllamaLLM
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, FewShotChatMessagePromptTemplate
+
+system_prompt = SystemMessagePromptTemplate.from_template(
+    "You are a helpful assistant that extracts factual claims from user text. Use JSON format as specified."
+)
+
+user_prompt = HumanMessagePromptTemplate.from_template(
+    "{text}\n\n{format_instructions}"
+)
+
+prompt = ChatPromptTemplate.from_messages([system_prompt, user_prompt])
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -13,72 +24,94 @@ from utils import print_list, DEBUG_MODE, CLAIM_EXTRACTION_TEMPLATE_PATH, DEVICE
 
 nltk.download('punkt')
 
+def create_claim_extraction_template():
+
+    proposition_examples = [
+        {"document": 
+            "In 1969, Neil Armstrong became the first person to walk on the Moon during the Apollo 11 mission.", 
+        "propositions": 
+            "['Neil Armstrong was an astronaut.', 'Neil Armstrong walked on the Moon in 1969.', 'Neil Armstrong was the first person to walk on the Moon.', 'Neil Armstrong walked on the Moon during the Apollo 11 mission.', 'The Apollo 11 mission occurred in 1969.']"
+        },
+    ]
+
+    example_proposition_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("human", "{document}"),
+            ("ai", "{propositions}"),
+        ]
+    )
+
+    few_shot_prompt = FewShotChatMessagePromptTemplate(
+        example_prompt = example_proposition_prompt,
+        examples = proposition_examples,
+    )
+
+    system = """Please break down the following text into simple, self-contained propositions. Ensure that each proposition meets the following criteria:
+
+        1. Express a Single Fact: Each proposition should state one specific fact or claim.
+        2. Be Understandable Without Context: The proposition should be self-contained, meaning it can be understood without needing additional context.
+        3. Use Full Names, Not Pronouns: Avoid pronouns or ambiguous references; use full entity names.
+        4. Include Relevant Dates/Qualifiers: If applicable, include necessary dates, times, and qualifiers to make the fact precise.
+        5. Contain One Subject-Predicate Relationship: Focus on a single subject and its corresponding action or attribute, without conjunctions or multiple clauses."""
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            few_shot_prompt,
+            ("human", "{document}"),
+        ]
+    )
+
+
 class Claims(BaseModel):
-    claims: list[str] = Field(description="List of claims extracted from the text.")
+    """List of all the claims/propositions made in the given document."""
+    claims: list[str] = Field(
+        description="List of claims/propositions (factual, self-contained, and concise information)"
+    )
 
 class ClaimExtractor(ABC):
     @abstractmethod
     def extract_claims(self, text: str) -> list[str]:
         pass
 
-class Decontextualiser(ABC):
-    @abstractmethod
-    def decontextualise(self, text: str) -> str:
-        pass
-
-class OllamaDecontextualiser(Decontextualiser):
-    def __init__(self, model_name: str) -> None:
-        with open(CLAIM_EXTRACTION_TEMPLATE_PATH, "r", encoding="utf-8") as f:
-            CLAIM_EXTRACTION_TEMPLATE: str = f.read()
-        prompt = PromptTemplate.from_template(CLAIM_EXTRACTION_TEMPLATE) # TODO: fix ⚠️
-
-        llm = OllamaLLM(model=model_name, temperature=0.0)
-        self.parser = PydanticOutputParser(pydantic_object=Claims)
-        self.chain = prompt | llm | self.parser
-
-    def decontextualise(self, text: str) -> str:
-        if text.strip() == "":
-            if DEBUG_MODE:
-                print("=> No text provided for decontextualisation. Returning empty string.")
-            return ""
-
-        claims: list[str] = self.chain.invoke({"text": text, "format_instructions": self.parser.get_format_instructions()}).claims
-        return " ".join(claims)
-
 class OllamaClaimExtractor(ClaimExtractor):
     def __init__(self, model_name: str) -> None:
         with open(CLAIM_EXTRACTION_TEMPLATE_PATH, "r", encoding="utf-8") as f:
             CLAIM_EXTRACTION_TEMPLATE: str = f.read()
-        prompt = PromptTemplate.from_template(CLAIM_EXTRACTION_TEMPLATE)
 
-        llm = OllamaLLM(model=model_name, temperature=0.0)
-        self.parser = PydanticOutputParser(pydantic_object=Claims)
-        self.chain = prompt | llm | self.parser
+        structured_llm = OllamaLLM(model=model_name, temperature=0.0).with_structured_output(Claims)
+        parser = PydanticOutputParser(pydantic_object=Claims)
+        self.proposition_generator = prompt | structured_llm | parser
 
     def extract_claims(self, text: str) -> list[str]:
-
         if text.strip() == "":
             if DEBUG_MODE:
                 print("=> No text provided for claim extraction. Returning empty list.")
             return []
 
-        claims: list[str] = self.chain.invoke({"text": text, "format_instructions": self.parser.get_format_instructions()}).claims
-
-        # Cleaning up claims
-        dont_start_with = ['-', '- ', 'The ', 'speaker ', 'text ', 'post ', 'article ', 'blog post ', 'blog article ', 'blog post article ']
-        for substring in dont_start_with:
-            if all(claim.startswith(substring) for claim in claims):
-                claims = [claim[len(substring):] for claim in claims]
-        
-        if all(claim.endswith(".") for claim in claims):
-            claims = [claim[:-1] for claim in claims]
-        
-        claims = [claim.strip() for claim in claims if claim.strip()]
+        claims: list[str] = self.proposition_generator.invoke({
+            "document": text
+        }).claims
 
         if DEBUG_MODE:
-            print(f"\n=> Cleaned claims from the text:\n")
+            print(f"\n=> Extracted claims from the text:\n")
             print_list(claims)
-        
+
+        # No longer cleaning up claims because it could mess up the decontextualisation process
+        # # Cleaning up claims
+        # dont_start_with = ['-', '- ', 'The ', 'speaker ', 'text ', 'post ', 'article ', 'blog post ', 'blog article ', 'blog post article ']
+        # for substring in dont_start_with:
+        #     if all(claim.startswith(substring) for claim in claims):
+        #         claims = [claim[len(substring):] for claim in claims]
+
+        # if all(claim.endswith(".") for claim in claims):
+        #     claims = [claim[:-1] for claim in claims]
+
+        # claims = [claim.strip() for claim in claims if claim.strip()]
+
+        # if DEBUG_MODE:
+        #     print(f"\n=> Cleaned claims from the text:\n")
+        #     print_list(claims)
+
         return claims
 
 class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
@@ -123,3 +156,29 @@ class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
 
         flattened_result: list[str] = [claim for sublist in result for claim in sublist]
         return flattened_result
+
+
+
+class Decontextualiser(ABC):
+    @abstractmethod
+    def decontextualise(self, before: str, text: str, after: str) -> str:
+        pass
+
+class NonDecontextualiser(Decontextualiser):
+    def decontextualise(self, before: str, text: str, after: str) -> str:
+        if DEBUG_MODE:
+            print("=> NonDecontextualiser called. Returning original text without changes.")
+        return text
+
+
+
+class FalsifiabilityChecker(ABC):
+    @abstractmethod
+    def is_falsifiable(self, claim: str) -> bool:
+        pass
+    
+class NonFalsifiabilityChecker(FalsifiabilityChecker):
+    def is_falsifiable(self, claim: str) -> bool:
+        if DEBUG_MODE:
+            print("=> NonFalsifiabilityChecker called. Returning True for all claims.")
+        return True

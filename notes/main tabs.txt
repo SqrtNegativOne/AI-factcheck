@@ -1,0 +1,101 @@
+are there any finetuned models that will accept a single sentence which is a...
+https://www.perplexity.ai/search/are-there-any-finetuned-models-pe0naesSSFCCZ7MlV.wE1Q
+
+
+Text Claim Search and Embedding
+https://chatgpt.com/c/685aae11-0b30-8002-9fde-9319200c5bd0
+
+Which works better for claim extraction; first extracting claims, then...
+https://www.perplexity.ai/search/which-works-better-for-claim-e-.uhqv7wITlaPw6U6v8K6iA
+
+Chunking Process Explanation
+https://chatgpt.com/c/6859a360-51b4-8002-b284-024065b37d41
+
+Claim Extraction Chunking Techniques
+https://chatgpt.com/c/685aae1b-ea64-8002-8c80-d5f843c2d6c8
+
+
+
+2412.13175
+https://arxiv.org/pdf/2412.13175
+
+2024.starsem-1.13.pdf
+https://aclanthology.org/2024.starsem-1.13.pdf
+
+Sub-Sentence Encoder: Contrastive Learning of Propositional Semantic Representations
+https://arxiv.org/pdf/2311.04335
+
+
+
+
+
+
+
+Document Embedding in RAG
+https://chatgpt.com/c/68595100-426c-8002-99aa-58bf0dce4db6
+
+BM25 Algorithm Explanation
+https://chatgpt.com/c/6859aa99-cf94-8002-9905-77ecc2b0e937
+
+
+
+
+Claimify: Extracting high-quality claims from language model outputs - Microsoft Research
+https://www.microsoft.com/en-us/research/blog/claimify-extracting-high-quality-claims-from-language-model-outputs/
+
+Towards Effective Extraction and Evaluation of Factual Claims
+https://arxiv.org/pdf/2502.10855
+
+
+
+RAG_Techniques/all_rag_techniques/proposition_chunking.ipynb at main · NirDiamant/RAG_Techniques
+https://github.com/NirDiamant/RAG_Techniques/blob/main/all_rag_techniques/proposition_chunking.ipynb
+
+language/language/decontext at master · google-research/language
+https://github.com/google-research/language/tree/master/language/decontext
+
+Are there any models for claim decontextualisation
+https://www.perplexity.ai/search/are-there-any-models-for-claim-vRm9yDyERjSjFf21G2fUuw
+
+2024.acl-long.645.pdf
+https://aclanthology.org/2024.acl-long.645.pdf
+
+2412.13175
+https://arxiv.org/pdf/2412.13175
+
+
+
+
+
+
+https://github.com/NirDiamant/RAG_Techniques/tree/main
+
+https://x.com/svpino/status/1936019528779206879
+
+
+apparently this has been tried out before
+https://chatgpt.com/c/685e33d6-e86c-8002-b671-193b0fac167e
+
+
+
+from very very long ago:
+What are some claim extraction methods from text to extract all the claims out...
+https://www.perplexity.ai/search/what-are-some-claim-extraction-S8kjw8zoQNyWSY8.oKS59g
+
+Towards Effective Extraction and Evaluation of Factual Claims
+https://arxiv.org/pdf/2502.10855
+
+Tswings/AVeriTeC-DCE
+https://github.com/Tswings/AVeriTeC-DCE?tab=readme-ov-file
+
+Babelscape/FENICE: FENICE (Factuality Evaluation of Summarization based on Natural Language Inference and Claim Extraction) is a factuality-oriented metric for summarization.
+https://github.com/Babelscape/FENICE
+
+What are the best local LLMs I can run for claim extraction from large amounts...
+https://www.perplexity.ai/search/what-are-the-best-local-llms-i-As_ELL7ZTQ.lESHoPO0_nQ
+
+nuextract
+https://ollama.com/library/nuextract
+
+SAGESSE-EPFL/Mistral-7b-claims-extraction · Hugging Face
+https://huggingface.co/SAGESSE-EPFL/Mistral-7b-claims-extraction

@@ -1,0 +1,33 @@
+3.1 Sentence Splitting and Context Creation
+ Claimify accepts a question-answer pair as input.
+ It uses NLTK’s sentence tokenizer to split the answer into sentences (Bird and Loper, 2004, version 3.9.1). Context is created for each sentence s based on a configurable combination of p preceding sentences, f following sentences. The parameters p and f are defined separately for the stages outlined in § 3.2-§ 3.4, allowing each stage to have a distinct context.
+
+
+ 3.2 Selection
+ Next, Claimify uses an LLM to determine whether each sentence contains any verifiable content, in light of its context and the question. When the LLM identifies that a sentence contains both verifiable and unverifiable components, it rewrites the sentence, retaining only the verifiable components.
+ More specifically, the LLM selects one of the following options: (1) state that the sentence does not contain any verifiable content, (2) return a modified version of the sentence that retains only verifiable content, or (3) return the original sentence, indicating that it does not contain any unverifiable content.
+ If the LLM selects the first option, the sentence is labeled “No verifiable claims” and excluded from subsequent stages (§ 3.3 and § 3.4).
+ 
+ 
+ 3.3 Disambiguation
+ The primary goals of this stage are to identify ambiguity in the sentences returned by the Selection stage, and to determine whether the ambiguity has a clear resolution based on the question and the context.
+ Claimify uses an LLM to identify two types of ambiguity.
+ The first is referential ambiguity, which occurs when it is unclear what a word or phrase refers to. For example, in the sentence “They will update the policy next year,” the terms “They,” “the policy,” and “next year” are ambiguous.
+ The second is structural ambiguity, which occurs when grammatical structure allows for multiple interpretations. For instance, the sentence “AI has advanced renewable energy and sustainable agriculture at Company A and Company B” can be interpreted as: (1) AI has advanced renewable energy and sustainable agriculture at both Company A and Company B, or (2) AI has advanced renewable energy at Company A, and it has advanced sustainable agriculture at Company B.
+ A special case of structural ambiguity involves distinguishing between factual claims and unverifiable interpretations added by the author. For example, the sentence “John emphasized the support he received from executives throughout his career, highlighting the importance of mentorship,” can be interpreted as: (1) John both emphasized the support he received and highlighted the importance of mentorship, or (2) John emphasized the support he received, while the author added the interpretation about the importance of mentorship.
+ The LLM is also asked to determine whether each instance of ambiguity can be resolved using the question and the context. The standard for resolution is whether a group of readers would likely agree on the correct interpretation. For example, recall the sentence “AI has advanced renewable energy and sustainable agriculture at Company A and Company B.” If the context specified that Company A builds solar panels and Company B reduces farms’ water usage, readers would likely conclude that AI has advanced renewable energy at Company A and sustainable agriculture at Company B. Conversely, if the context only described both companies as “environmental pioneers,” readers would have insufficient information to determine the correct interpretation.
+ If any ambiguity is unresolvable, the sentence is labeled “Cannot be disambiguated” and excluded from the Decomposition stage, even if it has unambiguous, verifiable components.
+ If the LLM resolves all ambiguity, it returns a clarified version of the sentence. If there is no ambiguity, it returns the original sentence.
+ Across the models tested in our experiments (§5), the largest proportion of sentences labeled “Cannot be disambiguated” was 5.4%.
+ 
+ 
+ 3.4 Decomposition
+ In the final stage, Claimify uses an LLM to decompose each disambiguated sentence into decontextualized factual claims. If it does not return any claims (only 0.8% of cases in our experiments), the sentence is labeled “No verifiable claims.”
+ Extracted claims may include text in brackets,
+ which typically represents information implied by the question or context but not explicitly stated in the source sentence. For example, given the question “Provide an overview of celebrities’ stances on the Middle East,” and the sentence “John has called for peace,” Claimify may return the claim “John [a celebrity] has called for peace [in the Middle East].” This notation resembles the “markup-andmask” approach by Eisenstein et al. (2024), which adds bracketed text to clarify context in passages.
+ A benefit of bracketing is that it flags inferred content, which is inherently less reliable than content explicitly stated in the source sentence.
+ 
+ 
+ 6The LLM also checks for partial names, abbreviations, and acronyms, which are not considered linguistic ambiguities.
+ If full forms are provided in the question or context, the LLM includes them in the returned sentence; otherwise, the LLM leaves them unchanged to avoid factual inaccuracies.
+ 7The proportion of sentences labeled “Cannot be disambiguated” per model was as follows: mistral-large-2411 = 5.4%, gpt-4o-2024-08-06 = 3.2%, DeepSeek-V3 = 2.4%.

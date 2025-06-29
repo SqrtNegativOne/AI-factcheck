@@ -1,136 +1,80 @@
-import os
-from dotenv import load_dotenv
-from pathlib import Path
-
-from enum import Enum
-import pickle
-from pydantic import BaseModel, Field, HttpUrl
-from abc import ABC, abstractmethod
-
-import serpapi
-import re
-
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
-import torch.nn.functional as F
-
-import requests
-from bs4 import BeautifulSoup
-
-import random
-import newspaper
+from pydantic import HttpUrl
+import pandas as pd
+import tldextract
 
 from utils import *
 import claim_extraction_models
+import other_models
 
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-class SourcesFinder(ABC):
-    def __init__(self) -> None:
+def extract_domain(url):
+    extracted = tldextract.extract(url)
+    return f"{extracted.domain}.{extracted.suffix}".lower()
 
-        if not RELIABLE_SOURCES_PATH.exists():
-            raise FileNotFoundError(f"Reliable sources file not found at {RELIABLE_SOURCES_PATH}. Please provide a valid file.")
-        
-        with open(RELIABLE_SOURCES_PATH, "rb") as f:
-            self.reliable_sources_regex: re.Pattern[str] = pickle.load(f)
+def lookup_source_bias(news_url):
+    domain = extract_domain(news_url)
+    bias_df = pd.read_csv(MBFC_PATH, encoding='utf-8')
+    match = bias_df[bias_df['url'].str.contains(domain, na=False, case=False)]
+    if match.empty:
+        print(f"\n=> No bias information found for domain: {domain}")
+    row = match.iloc[0]
+    results = {
+        'domain': domain,
+        'bias': row.get('bias_rating', 'N/A'),
+        'factual_reporting': row.get('factual_reporting_rating', 'N/A'),
+        'type': 'N/A',
+        'notes': f"Matched from: {row.get('site_name', '')}"
+    }
+    for k, v in results.items():
+        print(f"{k.capitalize()}: {v}")
 
-    @abstractmethod
-    def find_sources(self, claim: str) -> list[str]:
-        pass
-
-class NLIModel(ABC):
-    @abstractmethod
-    def recognise_textual_entailment(self, premise: str, hypothesis: str) -> Relation:
-        pass
-    
-class SerpApiSourcesFinder(SourcesFinder):
-    def find_sources(self, claim: str) -> list[str]:
-        params = {
-            "engine": "google_light",
-            "q": claim,
-            "api_key": SERPAPI_KEY,
-        }
-        search = serpapi.search(params)
-
-        urls = []
-        for result in search.get("organic_results", []):
-            urls.append(result.get("link"))
-
-        filtered_urls = [url for url in urls if self.reliable_sources_regex.match(url)]
-
-        if DEBUG_MODE:
-            if not filtered_urls:
-                print(f"\n=> No reliable sources found for this claim: {claim}\nHere are some unreliable ones instead.")
-                print_list(urls)
-            else:
-                print(f"\n=> Found {len(filtered_urls)} reliable sources for claim: {claim}")
-                print_list(filtered_urls)
-        
-        return filtered_urls
-
-class DemoSourcesFinder(SourcesFinder):
-    def find_sources(self, claim: str) -> list[str]:
-        return [EXAMPLE_URL] # Always the same
-
-class SearXNGSourcesFinder(SourcesFinder):
-    def find_sources(self, claim: str) -> list[str]:
-        raise NotImplementedError("SearXNGSourcesFinder is not implemented yet.")
-
-class HuggingFaceNLIModel(NLIModel):
-    def __init__(self, model_name: str) -> None:
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
-
-    def recognise_textual_entailment(self, premise: str, hypothesis: str) -> Relation:
-        inputs = self.tokenizer.encode_plus(premise, hypothesis, return_tensors="pt", truncation=True)
-        with torch.no_grad():
-            logits = self.model(**inputs).logits
-            probs = F.softmax(logits, dim=-1)
-        return [Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT][int(probs.argmax().item())]
-
-
-def load_text(url: str) -> str:
-    # Yeah this is not going to work. Kinda expected
-    # soup = BeautifulSoup(requests.get(url).text, "html.parser")
-    # paragraphs = soup.find_all("p")
-    # text = "\n".join([p.get_text() for p in paragraphs])
-    # if DEBUG_MODE:
-    #     print(f"\nLoaded text from {url}.\nFirst 500 characters:")
-    #     print(text[:500])  # Print first 500 characters for debugging
-    #     print()
-    # return text.strip()
-
-    # choices = ["Global warming is a hoax, the earth is flat, and I want to kill myself.",
-    #            "The earth is obviously not flat bruh, it's a cube",
-    #            "Of course jet fuel can melt steel beams; they inject all sorts of contrail-chemicals in there",
-    #            "They used to say that the earth was flat, and now they say it's round?? What's next, they'll say it's a dinosaur?",
-    #            "9/11 is fake because jet fuel can't melt steel beams",
-    #            "If global warming is true, why does snow exist? take that LIBERALS",
-    #            "They say an evil dictator is taking over the world who says the earth is flat and 9/11 was an inside job. Personally I have no interest in politics, so I don't really have an opinion on this."]
-    # return random.choice(choices)
+def verify_atomic_claim(atomic_claim: str, text_loader: other_models.TextFromURLLoader) -> Relation:
+    # https://github.com/mbzuai-nlp/fire/blob/main/eval/fire/verify_atomic_claim.py
 
     if DEMO_MODE:
-        if url == INPUT_URL:
-            return SAMPLE_INPUT_PATH.read_text(encoding="utf-8")
-        elif url == EXAMPLE_URL:
-            return SAMPLE_SOURCE_TEXTS_PATH.read_text(encoding="utf-8") # TODO: INCORRECT. fix later
-        else:
-            raise ValueError(f"Unknown URL: {url}. Disable demo mode to use real URLs.")
+        sources_finder: other_models.SourcesFinder = other_models.DemoSourcesFinder()
+    else:
+        sources_finder: other_models.SourcesFinder = other_models.SerpApiSourcesFinder()
+    claim_checker: other_models.NLIModel = other_models.HuggingFaceNLIModel(model_name='roberta-large-mnli')
+
+    source_urls: list[str] = sources_finder.find_sources(atomic_claim)
+    sources_urls.update(source_urls)
     
-    try:
-        article = newspaper.article(url)
-    except Exception as e:
-        print(f"Error loading article from {url}: {e}\njust gonna pretend that didn't happen and return absolutely nothing")
-        return ""
+    for source_url in source_urls:
+
+        # Check cache or just cache
+        if source_url in source_url_claims:
+            source_claims = source_url_claims[source_url]
+        else:
+            source_claims: list[str] = claim_extractor.extract_claims(text_loader.load_text(source_url))
+            source_url_claims[source_url] = source_claims
         
-    text = article.text
+        verified_veracity = False
 
-    if DEBUG_MODE:
-        print(f"\n=> Loaded text from {url}:")
-        print('-' * 50)
-        print(text[:500])  # Print first 500 characters for debugging
-        print('-' * 50)
+        for source_claim in source_claims:
+            source_claim_count += 1
 
-    return text
+            relation = claim_checker.recognise_textual_entailment(source_claim, claim)
+            if relation == relation.ENTAILMENT:
+                verified_veracity = True
+                if DEBUG_MODE:
+                    print(f"\n=> Claim '{claim}' is supported by source '{source_url}': {source_claim}")
+                break
+            elif relation == Relation.CONTRADICTION:
+                contradictions.append(Contradiction(claim=claim, source_url=HttpUrl(source_url), source_claim=source_claim))
+                verified_veracity = True
+                if DEBUG_MODE:
+                    print(f"\n=> Claim '{claim}' is contradicted by source '{source_url}': {source_claim}")
+                break
+        
+        if verified_veracity:
+            break
+
+    else: # nobreak
+        unverified_veracities.append(claim_index)
+
+    return Relation.NEUTRAL  # Placeholder for actual implementation
 
 def findings(claims: list[str], sources_urls: set[str], contradictions: list[Contradiction], unverified_veracities: list[int], source_claim_count: int) -> None:
     print("\nClaims made by the article:")
@@ -159,60 +103,42 @@ def findings(claims: list[str], sources_urls: set[str], contradictions: list[Con
             print(f"- {claims[claim_index]}")
 
 def main():
-    # Load models
+    print("AI Fact-Check v0.1")
+    if not DEMO_MODE:
+        print(f"Input URL: {INPUT_URL}")
+        lookup_source_bias(INPUT_URL)
+
+    # Main algorithm
+    text_loader = other_models.NewspaperTextLoader()
+    full_text: str = text_loader.load_text(INPUT_URL)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    text_chunks = text_splitter.split_text(full_text)
+
     claim_extractor: claim_extraction_models.ClaimExtractor = claim_extraction_models.OllamaClaimExtractor(model_name='qwen:7b-chat')
-    if DEMO_MODE:
-        sources_finder: SourcesFinder = DemoSourcesFinder()
-    else:
-        sources_finder: SourcesFinder = SerpApiSourcesFinder()
-    claim_checker: NLIModel = HuggingFaceNLIModel(model_name='roberta-large-mnli')
-    print("\n=> Models loaded successfully. Or maybe not idk let's see")
+    claims: list[str] = []
+    for chunk in text_chunks:
+        if DEBUG_MODE:
+            print(f"\n=> Processing text chunk:\n{chunk}\n")
+        claims.extend(claim_extractor.extract_claims(chunk))
+    
+    claim_decontextualiser = claim_extraction_models.NonDecontextualiser()
+    context_before, context_after = 5, 1
+    for i, claim in enumerate(claims):
+        before = "".join(claims[max(0, i - context_before):i])
+        after = "".join(claims[i + 1:i + context_after + 1]) if i + 1 < len(claims) else ""
+        claims[i] = claim_decontextualiser.decontextualise(before, claim, after)
+    
+    claim_falsifiability_checker = claim_extraction_models.NonFalsifiabilityChecker()
+    claims = [claim for claim in claims if claim_falsifiability_checker.is_falsifiable(claim)]
 
     contradictions: list[Contradiction] = []
     sources_urls = set()
     source_claim_count = 0
     source_url_claims: dict[str, list[str]] = {} # Cache claims for each source URL to avoid re-extraction
-
-    # Main algorithm
-    claims: list[str] = claim_extractor.extract_claims(load_text(INPUT_URL))
     unverified_veracities: list[int] = []
 
     for claim_index, claim in enumerate(claims):
-        source_urls: list[str] = sources_finder.find_sources(claim)
-        sources_urls.update(source_urls)
-        
-        for source_url in source_urls:
-
-            # Check cache or just cache
-            if source_url in source_url_claims:
-                source_claims = source_url_claims[source_url]
-            else:
-                source_claims: list[str] = claim_extractor.extract_claims(load_text(source_url))
-                source_url_claims[source_url] = source_claims
-            
-            verified_veracity = False
-
-            for source_claim in source_claims:
-                source_claim_count += 1
-
-                relation = claim_checker.recognise_textual_entailment(source_claim, claim)
-                if relation == relation.ENTAILMENT:
-                    verified_veracity = True
-                    if DEBUG_MODE:
-                        print(f"\n=> Claim '{claim}' is supported by source '{source_url}': {source_claim}")
-                    break
-                elif relation == Relation.CONTRADICTION:
-                    contradictions.append(Contradiction(claim=claim, source_url=HttpUrl(source_url), source_claim=source_claim))
-                    verified_veracity = True
-                    if DEBUG_MODE:
-                        print(f"\n=> Claim '{claim}' is contradicted by source '{source_url}': {source_claim}")
-                    break
-            
-            if verified_veracity:
-                break
-
-        else: # nobreak
-            unverified_veracities.append(claim_index)
+        status = verify_atomic_claim(claim, text_loader)
 
 
     findings(claims, sources_urls, contradictions, unverified_veracities, source_claim_count)
