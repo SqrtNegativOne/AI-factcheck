@@ -5,6 +5,7 @@ import tldextract
 from utils import *
 import claim_extraction_models
 import other_models
+from config import *
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
@@ -30,40 +31,29 @@ def lookup_source_bias(news_url):
         print(f"{k.capitalize()}: {v}")
 
 def generate_atomic_claims_from_url(url: str) -> list[str]:
-    text_loader = other_models.NewspaperTextLoader()
-    full_text: str = text_loader.load_text(url)
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    text_chunks = text_splitter.split_text(full_text)
+    full_text: str = TEXT_LOADER.load_text(url)
+    text_chunks = TEXT_SPLITTER.split_text(full_text)
 
-    claim_extractor: claim_extraction_models.ClaimExtractor = claim_extraction_models.OllamaClaimExtractor(model_name='qwen:7b-chat')
     claims: list[str] = []
     for chunk in text_chunks:
         if DEBUG_MODE:
             print(f"\n=> Processing text chunk:\n{chunk}\n")
-        claims.extend(claim_extractor.extract_claims(chunk))
+        claims.extend(CLAIM_EXTRACTOR.extract_claims(chunk))
     
-    claim_decontextualiser = claim_extraction_models.NonDecontextualiser()
     context_before, context_after = 5, 1
     for i, claim in enumerate(claims):
         before = "".join(claims[max(0, i - context_before):i])
         after = "".join(claims[i + 1:i + context_after + 1]) if i + 1 < len(claims) else ""
-        claims[i] = claim_decontextualiser.decontextualise(before, claim, after)
-    
-    claim_falsifiability_checker = claim_extraction_models.NonFalsifiabilityChecker()
-    claims = [claim for claim in claims if claim_falsifiability_checker.is_falsifiable(claim)]
+        claims[i] = CLAIM_DECONTEXTUALISER.decontextualise(before, claim, after)
+
+    claims = [claim for claim in claims if CLAIM_FALSIFIABILITY_CHECKER.is_falsifiable(claim)]
 
     return claims
 
-def verify_atomic_claim(atomic_claim: str, text_loader: other_models.TextFromURLLoader) -> Relation:
+def verify_atomic_claim(atomic_claim: str) -> Relation:
     # https://github.com/mbzuai-nlp/fire/blob/main/eval/fire/verify_atomic_claim.py
 
-    if DEMO_MODE:
-        sources_finder: other_models.SourcesFinder = other_models.DemoSourcesFinder()
-    else:
-        sources_finder: other_models.SourcesFinder = other_models.SerpApiSourcesFinder()
-    claim_checker: other_models.NLIModel = other_models.HuggingFaceNLIModel(model_name='roberta-large-mnli')
-
-    source_urls: list[str] = sources_finder.find_sources(atomic_claim)
+    source_urls: list[str] = SOURCES_FINDER.find_sources(atomic_claim)
     sources_urls.update(source_urls)
     
     for source_url in source_urls:
@@ -72,7 +62,7 @@ def verify_atomic_claim(atomic_claim: str, text_loader: other_models.TextFromURL
         if source_url in source_url_claims:
             source_claims = source_url_claims[source_url]
         else:
-            source_claims: list[str] = claim_extractor.extract_claims(text_loader.load_text(source_url))
+            source_claims: list[str] = CLAIM_EXTRACTOR.extract_claims(TEXT_LOADER.load_text(source_url))
             source_url_claims[source_url] = source_claims
         
         verified_veracity = False
@@ -80,7 +70,7 @@ def verify_atomic_claim(atomic_claim: str, text_loader: other_models.TextFromURL
         for source_claim in source_claims:
             source_claim_count += 1
 
-            relation = claim_checker.recognise_textual_entailment(source_claim, claim)
+            relation = NLI_MODEL.recognise_textual_entailment(source_claim, claim)
             if relation == relation.ENTAILMENT:
                 verified_veracity = True
                 if DEBUG_MODE:
@@ -143,7 +133,7 @@ def main():
     claims = generate_atomic_claims_from_url(INPUT_URL)
 
     for claim_index, claim in enumerate(claims):
-        status = verify_atomic_claim(claim, text_loader)
+        status = verify_atomic_claim(claim)
 
     findings(claims, sources_urls, contradictions, unverified_veracities, source_claim_count)
 
