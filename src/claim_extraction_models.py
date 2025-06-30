@@ -5,26 +5,16 @@ from langchain.output_parsers import PydanticOutputParser
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, FewShotChatMessagePromptTemplate
 
-system_prompt = SystemMessagePromptTemplate.from_template(
-    "You are a helpful assistant that extracts factual claims from user text. Use JSON format as specified."
-)
-
-user_prompt = HumanMessagePromptTemplate.from_template(
-    "{text}\n\n{format_instructions}"
-)
-
-prompt = ChatPromptTemplate.from_messages([system_prompt, user_prompt])
-
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import nltk
 import re
 
-from utils import print_list, DEBUG_MODE, CLAIM_EXTRACTION_TEMPLATE_PATH, DEVICE
+from utils import print_list, DEBUG_MODE, DEVICE
 
 nltk.download('punkt')
 
-def create_claim_extraction_template():
+def create_claim_extraction_prompt_template():
 
     proposition_examples = [
         {"document": 
@@ -53,6 +43,7 @@ def create_claim_extraction_template():
         3. Use Full Names, Not Pronouns: Avoid pronouns or ambiguous references; use full entity names.
         4. Include Relevant Dates/Qualifiers: If applicable, include necessary dates, times, and qualifiers to make the fact precise.
         5. Contain One Subject-Predicate Relationship: Focus on a single subject and its corresponding action or attribute, without conjunctions or multiple clauses."""
+    
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system),
@@ -60,6 +51,8 @@ def create_claim_extraction_template():
             ("human", "{document}"),
         ]
     )
+
+    return prompt
 
 
 class Claims(BaseModel):
@@ -75,11 +68,10 @@ class ClaimExtractor(ABC):
 
 class OllamaClaimExtractor(ClaimExtractor):
     def __init__(self, model_name: str) -> None:
-        with open(CLAIM_EXTRACTION_TEMPLATE_PATH, "r", encoding="utf-8") as f:
-            CLAIM_EXTRACTION_TEMPLATE: str = f.read()
 
         structured_llm = OllamaLLM(model=model_name, temperature=0.0).with_structured_output(Claims)
         parser = PydanticOutputParser(pydantic_object=Claims)
+        prompt = create_claim_extraction_prompt_template()
         self.proposition_generator = prompt | structured_llm | parser
 
     def extract_claims(self, text: str) -> list[str]:

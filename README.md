@@ -9,3 +9,5 @@ Pipeline for old-main.py in the /scripts/ directory: (no chunking method, no den
 ![Pipeline](./meta/diagram.png)
 
 Pipeline for main.py: in progress.
+
+If you'd like to try out different models or algorithms, ideally you should be messing around in the config.py only. The code is modular so should be simple enough.

@@ -1,13 +1,17 @@
-from pydantic import HttpUrl
+from pydantic import HttpUrl, BaseModel, Field
 import pandas as pd
 import tldextract
 
 from utils import *
-import claim_extraction_models
-import other_models
 from config import *
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.docstore.document import Document
+
+from typing import Any
+
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 def extract_domain(url):
     extracted = tldextract.extract(url)
@@ -30,66 +34,84 @@ def lookup_source_bias(news_url):
     for k, v in results.items():
         print(f"{k.capitalize()}: {v}")
 
-def generate_atomic_claims_from_url(url: str) -> list[str]:
+class Proposition(BaseModel):
+    claim: str = Field(..., description="The text of the proposition")
+    source: HttpUrl = Field(..., description="The source URL of the proposition")
+    chunk: str = Field(..., description="The text chunk from which the proposition was extracted") # should be fine memory-wise ∵ python stores strings as pointers to the same objects
+
+def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
     full_text: str = TEXT_LOADER.load_text(url)
     text_chunks = TEXT_SPLITTER.split_text(full_text)
 
-    claims: list[str] = []
-    for chunk in text_chunks:
+    proposition_objects: list[Proposition] = []
+
+    # Get raw claims
+    for i, chunk in enumerate(text_chunks):
         if DEBUG_MODE:
-            print(f"\n=> Processing text chunk:\n{chunk}\n")
-        claims.extend(CLAIM_EXTRACTOR.extract_claims(chunk))
-    
-    context_before, context_after = 5, 1
-    for i, claim in enumerate(claims):
-        before = "".join(claims[max(0, i - context_before):i])
-        after = "".join(claims[i + 1:i + context_after + 1]) if i + 1 < len(claims) else ""
-        claims[i] = CLAIM_DECONTEXTUALISER.decontextualise(before, claim, after)
+            logging.debug(f"\n=> Processing text chunk {i}:\n{chunk}\n")
+        for claim in CLAIM_EXTRACTOR.extract_claims(chunk):
+            if DEBUG_MODE:
+                logging.debug(f"Extracted claim: {claim}")
+            proposition_objects.append(Proposition(claim=claim, source=HttpUrl(url), chunk=chunk))
 
-    claims = [claim for claim in claims if CLAIM_FALSIFIABILITY_CHECKER.is_falsifiable(claim)]
+    # Decontextualise
+    for i, claim in enumerate(proposition_objects):
+        before = "".join(c.claim for c in proposition_objects[max(0, i-5):i])
+        after  = "".join(c.claim for c in proposition_objects[i+1:i+2])
+        new_claim = CLAIM_DECONTEXTUALISER.decontextualise(before, claim.claim, after)
 
-    return claims
+        if DEBUG_MODE:
+            logging.debug(f"\n=> Decontextualised claim {i}:\n{claim.claim}\nTo:\n{new_claim}\n")
 
-def verify_atomic_claim(atomic_claim: str) -> Relation:
+        proposition_objects[i] = Proposition(
+            claim=new_claim,
+            source=claim.source,
+            chunk=claim.chunk
+        )
+
+    # Check falsifiability
+    proposition_objects = [c for c in proposition_objects if CLAIM_FALSIFIABILITY_CHECKER.is_falsifiable(c.claim)]
+    return proposition_objects
+
+class PairRelation(BaseModel):
+    proposition_to_check_object: Proposition = Field(..., description="Claim made by the input article")
+    source_proposition_object: Proposition = Field(..., description="Claim extracted from the source")
+    relation: Relation = Field(..., description="Relation between the two claims (entailment, contradiction, or neutral)")
+
+def verify_atomic_claim(
+        proposition_to_check_object: Proposition,
+        source_url_to_proposition_objects_cache: dict[str, list[Proposition]]
+) -> tuple[PairRelation, set[str]]: # pair relation, updated source_url_claims_cache
     # https://github.com/mbzuai-nlp/fire/blob/main/eval/fire/verify_atomic_claim.py
 
-    source_urls: list[str] = SOURCES_FINDER.find_sources(atomic_claim)
-    sources_urls.update(source_urls)
-    
-    for source_url in source_urls:
+    source_claim_count = 0
+
+    search_results: list[str] = SEARCH_API.find_sources(proposition_to_check_object.claim)
+
+    for source_url in search_results:
 
         # Check cache or just cache
-        if source_url in source_url_claims:
-            source_claims = source_url_claims[source_url]
+        if source_url in source_url_to_proposition_objects_cache:
+            source_claims = source_url_to_proposition_objects_cache[source_url]
         else:
-            source_claims: list[str] = CLAIM_EXTRACTOR.extract_claims(TEXT_LOADER.load_text(source_url))
-            source_url_claims[source_url] = source_claims
-        
-        verified_veracity = False
+            source_claims: list[Proposition] = generate_atomic_claims_from_url(source_url)
+            source_url_to_proposition_objects_cache[source_url] = source_claims
 
-        for source_claim in source_claims:
-            source_claim_count += 1
+        source_claim_count += len(source_claims)
+        docs = [Document(page_content=claim.claim, metadata={"source": claim.source}) for claim in source_claims]
+        propositions_vectorstore = VECTORSTORE.from_documents(
+            docs,
+            EMBEDDINGS,
+            collection_name=source_url,
+            persist_directory=f"faiss/{extract_domain(source_url)}"
+        )
 
-            relation = NLI_MODEL.recognise_textual_entailment(source_claim, claim)
-            if relation == relation.ENTAILMENT:
-                verified_veracity = True
-                if DEBUG_MODE:
-                    print(f"\n=> Claim '{claim}' is supported by source '{source_url}': {source_claim}")
-                break
-            elif relation == Relation.CONTRADICTION:
-                contradictions.append(Contradiction(claim=claim, source_url=HttpUrl(source_url), source_claim=source_claim))
-                verified_veracity = True
-                if DEBUG_MODE:
-                    print(f"\n=> Claim '{claim}' is contradicted by source '{source_url}': {source_claim}")
-                break
-        
-        if verified_veracity:
-            break
+        if DEBUG_MODE:
+            logging.debug(f"\n=> Found {len(source_claims)} claims in source {source_url}:\n")
+            for claim in source_claims:
+                logging.debug(f"- {claim.claim}")
 
-    else: # nobreak
-        unverified_veracities.append(claim_index)
-
-    return Relation.NEUTRAL  # Placeholder for actual implementation
+        check_against = propositions_vectorstore.similarity_search_with_score(proposition_to_check_object.claim, k=5)
 
 def findings(claims: list[str], sources_urls: set[str], contradictions: list[Contradiction], unverified_veracities: list[int], source_claim_count: int) -> None:
     print("\nClaims made by the article:")
@@ -130,10 +152,10 @@ def main():
     source_url_claims: dict[str, list[str]] = {} # Cache claims for each source URL to avoid re-extraction
     unverified_veracities: list[int] = []
 
-    claims = generate_atomic_claims_from_url(INPUT_URL)
+    claims: list[Proposition] = generate_atomic_claims_from_url(INPUT_URL)
 
     for claim_index, claim in enumerate(claims):
-        status = verify_atomic_claim(claim)
+        status = verify_atomic_claim(claim, source_url_claims)
 
     findings(claims, sources_urls, contradictions, unverified_veracities, source_claim_count)
 

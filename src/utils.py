@@ -9,7 +9,7 @@ BASE_DIR: Path = Path(__file__).parent
 RELIABLE_SOURCES_PATH: Path = BASE_DIR / "data" / "reliable-sources.pkl"
 SAMPLE_INPUT_PATH: Path = BASE_DIR / "data" / "sample-input.txt"
 SAMPLE_SOURCE_TEXTS_PATH: Path = BASE_DIR / "data" / "sample-source-texts.txt"
-CLAIM_EXTRACTION_TEMPLATE_PATH: Path = BASE_DIR / "data" / "claim-extraction-template.txt"
+#CLAIM_EXTRACTION_TEMPLATE_PATH: Path = BASE_DIR / "data" / "claim-extraction-template.txt"
 MBFC_PATH = BASE_DIR / "data" / "mbfc.csv"
 
 load_dotenv(BASE_DIR / ".env")

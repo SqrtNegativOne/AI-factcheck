@@ -15,6 +15,50 @@ import random
 import newspaper
 from utils import *
 
+
+
+def debug_text(text: str) -> None:
+    if DEBUG_MODE:
+        print(f"\n=> Loaded text:")
+        print('-' * 50)
+        print(text[:500])  # Print first 500 characters for debugging
+        print('-' * 50)
+
+class TextFromURLLoader(ABC):
+    @abstractmethod
+    def load_text(self, url: str) -> str:
+        pass
+
+class NewspaperTextLoader(TextFromURLLoader):
+    def load_text(self, url: str) -> str:
+        article = newspaper.Article(url)
+        article.download()
+        article.parse()
+        text = article.text.strip()
+        debug_text(text)
+        return text
+
+class BeautifulSoupTextLoader(TextFromURLLoader):
+    def load_text(self, url: str) -> str:
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        text = soup.get_text(separator=' ', strip=True)
+        debug_text(text)
+        return text
+
+class RandomTextLoader(TextFromURLLoader):
+    def load_text(self, url: str) -> str:
+        choices = ["Global warming is a hoax, the earth is flat, and I want to kill myself.",
+            "The earth is obviously not flat bruh, it's a cube",
+            "Of course jet fuel can melt steel beams; they inject all sorts of contrail-chemicals in there",
+            "They used to say that the earth was flat, and now they say it's round?? What's next, they'll say it's a dinosaur?",
+            "9/11 is fake because jet fuel can't melt steel beams",
+            "If global warming is true, why does snow exist? take that LIBERALS",
+            "They say an evil dictator is taking over the world who says the earth is flat and 9/11 was an inside job. Personally I have no interest in politics, so I don't really have an opinion on this."]
+        return random.choice(choices)
+
+
+
 class SourcesFinder(ABC):
     def __init__(self) -> None:
 
@@ -60,7 +104,7 @@ class DemoSourcesFinder(SourcesFinder):
 class SearXNGSourcesFinder(SourcesFinder):
     def find_sources(self, claim: str) -> list[str]:
         raise NotImplementedError("SearXNGSourcesFinder is not implemented yet.")
-    
+
 
 
 class NLIModel(ABC):
@@ -79,45 +123,3 @@ class HuggingFaceNLIModel(NLIModel):
             logits = self.model(**inputs).logits
             probs = F.softmax(logits, dim=-1)
         return [Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT][int(probs.argmax().item())]
-
-
-
-def debug_text(text: str) -> None:
-    if DEBUG_MODE:
-        print(f"\n=> Loaded text:")
-        print('-' * 50)
-        print(text[:500])  # Print first 500 characters for debugging
-        print('-' * 50)
-
-class TextFromURLLoader(ABC):
-    @abstractmethod
-    def load_text(self, url: str) -> str:
-        pass
-
-class NewspaperTextLoader(TextFromURLLoader):
-    def load_text(self, url: str) -> str:
-        article = newspaper.Article(url)
-        article.download()
-        article.parse()
-        text = article.text.strip()
-        debug_text(text)
-        return text
-
-class BeautifulSoupTextLoader(TextFromURLLoader):
-    def load_text(self, url: str) -> str:
-        response = requests.get(url)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        text = soup.get_text(separator=' ', strip=True)
-        debug_text(text)
-        return text
-
-class RandomTextLoader(TextFromURLLoader):
-    def load_text(self, url: str) -> str:
-        choices = ["Global warming is a hoax, the earth is flat, and I want to kill myself.",
-            "The earth is obviously not flat bruh, it's a cube",
-            "Of course jet fuel can melt steel beams; they inject all sorts of contrail-chemicals in there",
-            "They used to say that the earth was flat, and now they say it's round?? What's next, they'll say it's a dinosaur?",
-            "9/11 is fake because jet fuel can't melt steel beams",
-            "If global warming is true, why does snow exist? take that LIBERALS",
-            "They say an evil dictator is taking over the world who says the earth is flat and 9/11 was an inside job. Personally I have no interest in politics, so I don't really have an opinion on this."]
-        return random.choice(choices)
