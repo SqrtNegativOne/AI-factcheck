@@ -13,11 +13,11 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
-def extract_domain(url):
+def extract_domain(url) -> str:
     extracted = tldextract.extract(url)
     return f"{extracted.domain}.{extracted.suffix}".lower()
 
-def lookup_source_bias(news_url):
+def lookup_source_bias(news_url) -> None:
     domain = extract_domain(news_url)
     bias_df = pd.read_csv(MBFC_PATH, encoding='utf-8')
     match = bias_df[bias_df['url'].str.contains(domain, na=False, case=False)]
@@ -36,7 +36,7 @@ def lookup_source_bias(news_url):
 
 class Proposition(BaseModel):
     claim: str = Field(..., description="The text of the proposition")
-    source: HttpUrl = Field(..., description="The source URL of the proposition")
+    url: HttpUrl = Field(..., description="The source URL of the proposition")
     chunk: str = Field(..., description="The text chunk from which the proposition was extracted") # should be fine memory-wise ∵ python stores strings as pointers to the same objects
 
 def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
@@ -52,7 +52,7 @@ def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
         for claim in CLAIM_EXTRACTOR.extract_claims(chunk):
             if DEBUG_MODE:
                 logging.debug(f"Extracted claim: {claim}")
-            proposition_objects.append(Proposition(claim=claim, source=HttpUrl(url), chunk=chunk))
+            proposition_objects.append(Proposition(claim=claim, url=HttpUrl(url), chunk=chunk))
 
     # Decontextualise
     for i, claim in enumerate(proposition_objects):
@@ -65,7 +65,7 @@ def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
 
         proposition_objects[i] = Proposition(
             claim=new_claim,
-            source=claim.source,
+            url=claim.url,
             chunk=claim.chunk
         )
 
@@ -79,43 +79,82 @@ class PairRelation(BaseModel):
     relation: Relation = Field(..., description="Relation between the two claims (entailment, contradiction, or neutral)")
 
 def verify_atomic_claim(
-        proposition_to_check_object: Proposition,
-        source_url_to_proposition_objects_cache: dict[str, list[Proposition]]
-) -> tuple[PairRelation, set[str]]: # pair relation, updated source_url_claims_cache
+        proposition_to_check_object: Proposition
+) -> tuple[PairRelation | None, set[str]]: # pair relation, new sources used
     # https://github.com/mbzuai-nlp/fire/blob/main/eval/fire/verify_atomic_claim.py
-
-    source_claim_count = 0
 
     search_results: list[str] = SEARCH_API.find_sources(proposition_to_check_object.claim)
 
+    pair_relation: PairRelation | None = None
+
     for source_url in search_results:
 
-        # Check cache or just cache
-        if source_url in source_url_to_proposition_objects_cache:
-            source_claims = source_url_to_proposition_objects_cache[source_url]
+        file_path = os.path.join("faiss", extract_domain(source_url), "index.faiss")
+
+        if os.path.isfile(file_path):
+            # Get the propositions_vectorstore from the persisted directory
+            propositions_vectorstore = VECTORSTORE.load_local(
+                f"faiss/{extract_domain(source_url)}",
+                EMBEDDING_MODEL
+            )
         else:
             source_claims: list[Proposition] = generate_atomic_claims_from_url(source_url)
-            source_url_to_proposition_objects_cache[source_url] = source_claims
 
-        source_claim_count += len(source_claims)
-        docs = [Document(page_content=claim.claim, metadata={"source": claim.source}) for claim in source_claims]
-        propositions_vectorstore = VECTORSTORE.from_documents(
-            docs,
-            EMBEDDINGS,
-            collection_name=source_url,
-            persist_directory=f"faiss/{extract_domain(source_url)}"
-        )
+            docs = [
+                Document(
+                    page_content=claim.claim,
+                    metadata={
+                        "source": claim.url,
+                        "chunk": claim.chunk
+                    }
+                ) for claim in source_claims
+            ]
 
-        if DEBUG_MODE:
-            logging.debug(f"\n=> Found {len(source_claims)} claims in source {source_url}:\n")
-            for claim in source_claims:
-                logging.debug(f"- {claim.claim}")
+            propositions_vectorstore = VECTORSTORE.from_documents(
+                docs,
+                EMBEDDING_MODEL,
+                collection_name=source_url,
+                persist_directory=f"faiss/{extract_domain(source_url)}"
+            )
+
+            if DEBUG_MODE:
+                logging.debug(f"\n=> Found {len(source_claims)} claims in source {source_url}:\n")
+                for claim in source_claims:
+                    logging.debug(f"- {claim.claim}")
 
         check_against = propositions_vectorstore.similarity_search_with_score(proposition_to_check_object.claim, k=5)
 
-def findings(claims: list[str], sources_urls: set[str], contradictions: list[Contradiction], unverified_veracities: list[int], source_claim_count: int) -> None:
+        if DEBUG_MODE:
+            logging.debug(f"\n=> Found {len(check_against)} claims in source {source_url} that are similar to the proposition:\n")
+            for claim, score in check_against:
+                logging.debug(f"- {claim.page_content} (score: {score})")
+        
+        if not check_against:
+            continue
+
+        for source_claim, score in check_against:
+            relation: Relation = NLI_MODEL.recognise_textual_entailment(source_claim.page_content, proposition_to_check_object.claim)
+
+            if relation == Relation.NEUTRAL:
+                continue
+
+            pair_relation = PairRelation(
+                proposition_to_check_object=proposition_to_check_object,
+                source_proposition_object=Proposition(
+                    claim=source_claim.page_content,
+                    url=HttpUrl(source_url),
+                    chunk=source_claim.metadata["chunk"]
+                ),
+                relation=relation
+            )
+            break
+        
+
+    return pair_relation, set(search_results)
+
+def findings(claims: list[Proposition], sources_urls: set[str], contradictions: list[PairRelation], unverified_veracities: list[int]) -> None:
     print("\nClaims made by the article:")
-    print_list(claims)
+    print_list([c.claim for c in claims])
 
     if not sources_urls:
         print("The article does not contain any claims that can be verified with reliable sources.")
@@ -123,15 +162,18 @@ def findings(claims: list[str], sources_urls: set[str], contradictions: list[Con
         return
     print(f"Sources used:")
     print_list(list(sources_urls))
-    print(f"Source claims extracted: {source_claim_count}")
 
     if not contradictions:
         print("\nNo contradictions were found.")
     else:
         print("\nContradictions found:")
-        for contradiction in contradictions:
-            print(f"- Claim: {contradiction.claim}\n  Source URL: {contradiction.source_url}\n  Source Claim: {contradiction.source_claim}")
-    
+        for pair_relation in contradictions:
+            print(f"Original claim: {pair_relation.proposition_to_check_object.claim}")
+            print(f"From chunk: {pair_relation.proposition_to_check_object.chunk}")
+            print(f"Source claim: {pair_relation.source_proposition_object.claim}")
+            print(f"From URL: {pair_relation.source_proposition_object.url}")
+            print(f"From chunk: {pair_relation.source_proposition_object.chunk}")
+
     if not unverified_veracities:
         print("\nAll claims were supported by at least one reliable source.")
     else:
@@ -140,24 +182,29 @@ def findings(claims: list[str], sources_urls: set[str], contradictions: list[Con
             print(f"- {claims[claim_index]}")
 
 def main():
-    print("AI Fact-Check v0.1")
+    print("AI Fact-Check v0.2")
     if not DEMO_MODE:
         print(f"Input URL: {INPUT_URL}")
         lookup_source_bias(INPUT_URL)
 
     # Main algorithm
-    contradictions: list[Contradiction] = []
+    contradictions: list[PairRelation] = []
     sources_urls = set()
-    source_claim_count = 0
-    source_url_claims: dict[str, list[str]] = {} # Cache claims for each source URL to avoid re-extraction
     unverified_veracities: list[int] = []
 
     claims: list[Proposition] = generate_atomic_claims_from_url(INPUT_URL)
 
     for claim_index, claim in enumerate(claims):
-        status = verify_atomic_claim(claim, source_url_claims)
+        pair_relation, new_sources_urls = verify_atomic_claim(claim)
+        sources_urls.update(new_sources_urls)
 
-    findings(claims, sources_urls, contradictions, unverified_veracities, source_claim_count)
+        if pair_relation is None:
+            unverified_veracities.append(claim_index)
+            continue
+        if pair_relation.relation == Relation.CONTRADICTION:
+            contradictions.append(pair_relation)
+
+    findings(claims, sources_urls, contradictions, unverified_veracities)
 
 
 if __name__ == "__main__":

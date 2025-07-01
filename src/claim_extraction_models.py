@@ -69,7 +69,7 @@ class ClaimExtractor(ABC):
 class OllamaClaimExtractor(ClaimExtractor):
     def __init__(self, model_name: str) -> None:
 
-        structured_llm = OllamaLLM(model=model_name, temperature=0.0).with_structured_output(Claims)
+        structured_llm = OllamaLLM(model=model_name, temperature=0.0) # .with_structured_output(Claims) # OllamaLLM does not support structured output yet
         parser = PydanticOutputParser(pydantic_object=Claims)
         prompt = create_claim_extraction_prompt_template()
         self.proposition_generator = prompt | structured_llm | parser
