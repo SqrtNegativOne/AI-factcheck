@@ -7,10 +7,7 @@ from config import *
 
 from langchain.docstore.document import Document
 
-from typing import Any
-
 import logging
-
 logging.basicConfig(level=logging.INFO)
 
 def extract_domain(url) -> str:
@@ -40,36 +37,41 @@ class Proposition(BaseModel):
     chunk: str = Field(..., description="The text chunk from which the proposition was extracted") # should be fine memory-wise ∵ python stores strings as pointers to the same objects
 
 def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
-    full_text: str = TEXT_LOADER.load_text(url)
+    if HARDCODED_TEXT:
+        logging.debug(f"\n=> Using hardcoded text for URL: {url}\n")
+        full_text = HARDCODED_TEXT
+    else:
+        full_text: str = TEXT_LOADER.load_text(url)
     text_chunks = TEXT_SPLITTER.split_text(full_text)
 
     proposition_objects: list[Proposition] = []
 
     # Get raw claims
     for i, chunk in enumerate(text_chunks):
-        if DEBUG_MODE:
-            logging.debug(f"\n=> Processing text chunk {i}:\n{chunk}\n")
+        logging.debug(f"\n=> Processing text chunk {i}:\n{chunk}\n")
         for claim in CLAIM_EXTRACTOR.extract_claims(chunk):
-            if DEBUG_MODE:
-                logging.debug(f"Extracted claim: {claim}")
+            logging.debug(f"Extracted claim: {claim}")
             proposition_objects.append(Proposition(claim=claim, url=HttpUrl(url), chunk=chunk))
 
     # Decontextualise
-    for i, claim in enumerate(proposition_objects):
-        before = "".join(c.claim for c in proposition_objects[max(0, i-5):i])
-        after  = "".join(c.claim for c in proposition_objects[i+1:i+2])
-        new_claim = CLAIM_DECONTEXTUALISER.decontextualise(before, claim.claim, after)
+    if DECONTEXTUALISE:
+        for i, claim in enumerate(proposition_objects):
+            before = "".join(c.claim for c in proposition_objects[max(0, i-5):i])
+            after  = "".join(c.claim for c in proposition_objects[i+1:i+2])
+            new_claim = CLAIM_DECONTEXTUALISER.decontextualise(before, claim.claim, after)
 
-        if DEBUG_MODE:
             logging.debug(f"\n=> Decontextualised claim {i}:\n{claim.claim}\nTo:\n{new_claim}\n")
 
-        proposition_objects[i] = Proposition(
-            claim=new_claim,
-            url=claim.url,
-            chunk=claim.chunk
-        )
+            proposition_objects[i] = Proposition(
+                claim=new_claim,
+                url=claim.url,
+                chunk=claim.chunk
+            )
 
     # Check falsifiability
+    if not CHECK_FALSIFIABILITY:
+        return proposition_objects
+    
     proposition_objects = [c for c in proposition_objects if CLAIM_FALSIFIABILITY_CHECKER.is_falsifiable(c.claim)]
     return proposition_objects
 
@@ -117,17 +119,15 @@ def verify_atomic_claim(
                 persist_directory=f"faiss/{extract_domain(source_url)}"
             )
 
-            if DEBUG_MODE:
-                logging.debug(f"\n=> Found {len(source_claims)} claims in source {source_url}:\n")
-                for claim in source_claims:
-                    logging.debug(f"- {claim.claim}")
+            logging.debug(f"\n=> Found {len(source_claims)} claims in source {source_url}:\n")
+            for claim in source_claims:
+                logging.debug(f"- {claim.claim}")
 
         check_against = propositions_vectorstore.similarity_search_with_score(proposition_to_check_object.claim, k=5)
 
-        if DEBUG_MODE:
-            logging.debug(f"\n=> Found {len(check_against)} claims in source {source_url} that are similar to the proposition:\n")
-            for claim, score in check_against:
-                logging.debug(f"- {claim.page_content} (score: {score})")
+        logging.debug(f"\n=> Found {len(check_against)} claims in source {source_url} that are similar to the proposition:\n")
+        for claim, score in check_against:
+            logging.debug(f"- {claim.page_content} (score: {score})")
         
         if not check_against:
             continue
@@ -158,7 +158,7 @@ def findings(claims: list[Proposition], sources_urls: set[str], contradictions: 
 
     if not sources_urls:
         print("The article does not contain any claims that can be verified with reliable sources.")
-        if DEBUG_MODE: print("or the claim extractor and source finder isn't/aren't working properly idk")
+        logging.debug("or the claim extractor and source finder isn't/aren't working properly idk")
         return
     print(f"Sources used:")
     print_list(list(sources_urls))
@@ -183,7 +183,7 @@ def findings(claims: list[Proposition], sources_urls: set[str], contradictions: 
 
 def main():
     print("AI Fact-Check v0.2")
-    if not DEMO_MODE:
+    if not HARDCODED_TEXT:
         print(f"Input URL: {INPUT_URL}")
         lookup_source_bias(INPUT_URL)
 

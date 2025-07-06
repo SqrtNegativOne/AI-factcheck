@@ -1,16 +1,16 @@
 from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
-from langchain.prompts import PromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 from langchain_ollama import OllamaLLM
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, FewShotChatMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, FewShotChatMessagePromptTemplate
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import nltk
 import re
 
-from utils import print_list, DEBUG_MODE, DEVICE
+import logging
+from utils import print_list, DEVICE
 
 nltk.download('punkt')
 
@@ -76,17 +76,15 @@ class OllamaClaimExtractor(ClaimExtractor):
 
     def extract_claims(self, text: str) -> list[str]:
         if text.strip() == "":
-            if DEBUG_MODE:
-                print("=> No text provided for claim extraction. Returning empty list.")
+            logging.debug("=> No text provided for claim extraction. Returning empty list.")
             return []
 
         claims: list[str] = self.proposition_generator.invoke({
             "document": text
         }).claims
 
-        if DEBUG_MODE:
-            print(f"\n=> Extracted claims from the text:\n")
-            print_list(claims)
+        logging.debug(f"\n=> Extracted claims from the text:\n")
+        print_list(claims)
 
         # No longer cleaning up claims because it could mess up the decontextualisation process
         # # Cleaning up claims
@@ -158,8 +156,7 @@ class Decontextualiser(ABC):
 
 class NonDecontextualiser(Decontextualiser):
     def decontextualise(self, before: str, text: str, after: str) -> str:
-        if DEBUG_MODE:
-            print("=> NonDecontextualiser called. Returning original text without changes.")
+        logging.debug("=> NonDecontextualiser called. Returning original text without changes.")
         return text
 
 
@@ -171,6 +168,9 @@ class FalsifiabilityChecker(ABC):
     
 class NonFalsifiabilityChecker(FalsifiabilityChecker):
     def is_falsifiable(self, claim: str) -> bool:
-        if DEBUG_MODE:
-            print("=> NonFalsifiabilityChecker called. Returning True for all claims.")
+        logging.debug("=> NonFalsifiabilityChecker called. Returning True for all claims.")
         return True
+    
+
+if __name__ == "__main__":
+    pass
