@@ -2,13 +2,15 @@ from pydantic import HttpUrl, BaseModel, Field
 import pandas as pd
 import tldextract
 
-from utils import *
+from utils import MBFC_PATH, Relation
 from config import *
+
+import os
 
 from langchain.docstore.document import Document
 
 import logging
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def extract_domain(url) -> str:
     extracted = tldextract.extract(url)
@@ -19,17 +21,17 @@ def lookup_source_bias(news_url) -> None:
     bias_df = pd.read_csv(MBFC_PATH, encoding='utf-8')
     match = bias_df[bias_df['url'].str.contains(domain, na=False, case=False)]
     if match.empty:
-        print(f"\n=> No bias information found for domain: {domain}")
+        logger.warning(f"\n=> No bias information found for domain: {domain}")
     row = match.iloc[0]
     results = {
-        'domain': domain,
-        'bias': row.get('bias_rating', 'N/A'),
-        'factual_reporting': row.get('factual_reporting_rating', 'N/A'),
-        'type': 'N/A',
-        'notes': f"Matched from: {row.get('site_name', '')}"
+        'Domain': domain,
+        'Bias': row.get('bias_rating', 'N/A'),
+        'Factual Reporting': row.get('factual_reporting_rating', 'N/A'),
+        'Type': 'N/A',
+        #'Notes': f"Matched from: {row.get('site_name', '')}"
     }
     for k, v in results.items():
-        print(f"{k.capitalize()}: {v}")
+        print(f"{k}: {v}")
 
 class Proposition(BaseModel):
     claim: str = Field(..., description="The text of the proposition")
@@ -38,7 +40,7 @@ class Proposition(BaseModel):
 
 def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
     if HARDCODED_TEXT:
-        logging.debug(f"\n=> Using hardcoded text for URL: {url}\n")
+        logger.info(f"\n=> Using hardcoded text for URL: {url}\n")
         full_text = HARDCODED_TEXT
     else:
         full_text: str = TEXT_LOADER.load_text(url)
@@ -46,11 +48,11 @@ def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
 
     proposition_objects: list[Proposition] = []
 
-    # Get raw claims
+    # Get claims
     for i, chunk in enumerate(text_chunks):
-        logging.debug(f"\n=> Processing text chunk {i}:\n{chunk}\n")
+        logger.info(f"\n=> Processing text chunk {i}:\n{chunk}\n")
         for claim in CLAIM_EXTRACTOR.extract_claims(chunk):
-            logging.debug(f"Extracted claim: {claim}")
+            logger.info(f"Extracted claim: {claim}")
             proposition_objects.append(Proposition(claim=claim, url=HttpUrl(url), chunk=chunk))
 
     # Decontextualise
@@ -60,7 +62,7 @@ def generate_atomic_claims_from_url(url: str) -> list[Proposition]:
             after  = "".join(c.claim for c in proposition_objects[i+1:i+2])
             new_claim = CLAIM_DECONTEXTUALISER.decontextualise(before, claim.claim, after)
 
-            logging.debug(f"\n=> Decontextualised claim {i}:\n{claim.claim}\nTo:\n{new_claim}\n")
+            logger.info(f"\n=> Decontextualised claim {i}:\n{claim.claim}\nTo:\n{new_claim}\n")
 
             proposition_objects[i] = Proposition(
                 claim=new_claim,
@@ -119,16 +121,16 @@ def verify_atomic_claim(
                 persist_directory=f"faiss/{extract_domain(source_url)}"
             )
 
-            logging.debug(f"\n=> Found {len(source_claims)} claims in source {source_url}:\n")
+            logger.info(f"\n=> Found {len(source_claims)} claims in source {source_url}:\n")
             for claim in source_claims:
-                logging.debug(f"- {claim.claim}")
+                logger.info(f"- {claim.claim}")
 
         check_against = propositions_vectorstore.similarity_search_with_score(proposition_to_check_object.claim, k=5)
 
-        logging.debug(f"\n=> Found {len(check_against)} claims in source {source_url} that are similar to the proposition:\n")
+        logger.info(f"\n=> Found {len(check_against)} claims in source {source_url} that are similar to the proposition:\n")
         for claim, score in check_against:
-            logging.debug(f"- {claim.page_content} (score: {score})")
-        
+            logger.info(f"- {claim.page_content} (score: {score})")
+
         if not check_against:
             continue
 
@@ -153,33 +155,32 @@ def verify_atomic_claim(
     return pair_relation, set(search_results)
 
 def findings(claims: list[Proposition], sources_urls: set[str], contradictions: list[PairRelation], unverified_veracities: list[int]) -> None:
-    print("\nClaims made by the article:")
-    print_list([c.claim for c in claims])
+    logger.info("\nClaims made by the article:")
+    logger.info(f"Claims made by the article:\n{[c.claim for c in claims]}")
 
     if not sources_urls:
-        print("The article does not contain any claims that can be verified with reliable sources.")
-        logging.debug("or the claim extractor and source finder isn't/aren't working properly idk")
+        logger.warning("The article does not contain any claims that can be verified with reliable sources.")
         return
-    print(f"Sources used:")
-    print_list(list(sources_urls))
+    logger.info(f"Sources used:")
+    logger.info(f"{list(sources_urls)}")
 
     if not contradictions:
-        print("\nNo contradictions were found.")
+        logger.warning("\nNo contradictions were found.")
     else:
-        print("\nContradictions found:")
+        logger.info("\nContradictions found:")
         for pair_relation in contradictions:
-            print(f"Original claim: {pair_relation.proposition_to_check_object.claim}")
-            print(f"From chunk: {pair_relation.proposition_to_check_object.chunk}")
-            print(f"Source claim: {pair_relation.source_proposition_object.claim}")
-            print(f"From URL: {pair_relation.source_proposition_object.url}")
-            print(f"From chunk: {pair_relation.source_proposition_object.chunk}")
+            logger.info(f"Original claim: {pair_relation.proposition_to_check_object.claim}")
+            logger.info(f"From chunk: {pair_relation.proposition_to_check_object.chunk}")
+            logger.info(f"Source claim: {pair_relation.source_proposition_object.claim}")
+            logger.info(f"From URL: {pair_relation.source_proposition_object.url}")
+            logger.info(f"From chunk: {pair_relation.source_proposition_object.chunk}")
 
     if not unverified_veracities:
-        print("\nAll claims were supported by at least one reliable source.")
+        logger.info("\nAll claims were supported by at least one reliable source.")
     else:
-        print("\nClaims with no entailments found:")
+        logger.info("\nClaims with no entailments found:")
         for claim_index in unverified_veracities:
-            print(f"- {claims[claim_index]}")
+            logger.info(f"- {claims[claim_index]}")
 
 def main():
     print("AI Fact-Check v0.2")

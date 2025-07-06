@@ -1,27 +1,29 @@
 from abc import ABC, abstractmethod
-import pickle
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
-import torch.nn.functional as F
+from utils import Relation
 
-from utils import *
-
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def debug_text(text: str) -> None:
-    print(f"\n=> Loaded text:")
-    print('-' * 50)
-    print(text[:500])  # Print first 500 characters for debugging
-    print('-' * 50)
 
 class TextFromURLLoader(ABC):
+    @staticmethod
+    def show_text(text: str) -> None:
+        # Use print instead of logging only
+        print(f"\n=> Loaded text:")
+        print('-' * 50)
+        print(text[:500])  # Print first 500 characters for debugging
+        print('-' * 50)
+
     @abstractmethod
     def load_text(self, url: str) -> str:
         pass
 
 class NewspaperTextLoader(TextFromURLLoader):
     def __init__(self) -> None:
+        super().__init__()
         try:
             import newspaper
         except ImportError:
@@ -33,11 +35,12 @@ class NewspaperTextLoader(TextFromURLLoader):
         article.download()
         article.parse()
         text = article.text.strip()
-        debug_text(text)
+        self.show_text(text)
         return text
 
 class BeautifulSoupTextLoader(TextFromURLLoader):
     def __init__(self) -> None:
+        super().__init__()
         try:
             from bs4 import BeautifulSoup
             import requests
@@ -50,7 +53,7 @@ class BeautifulSoupTextLoader(TextFromURLLoader):
         response = self.requests.get(url)
         soup = self.BeautifulSoup(response.content, 'html.parser')
         text = soup.get_text(separator=' ', strip=True)
-        debug_text(text)
+        self.show_text(text)
         return text
 
 class RandomTextLoader(TextFromURLLoader):
@@ -73,6 +76,8 @@ class RandomTextLoader(TextFromURLLoader):
 class SourcesFinder(ABC):
     def __init__(self) -> None:
         import re
+        import pickle
+        from utils import RELIABLE_SOURCES_PATH
 
         if not RELIABLE_SOURCES_PATH.exists():
             raise FileNotFoundError(f"Reliable sources file not found at {RELIABLE_SOURCES_PATH}. Please provide a valid file.")
@@ -92,6 +97,7 @@ class SerpApiSourcesFinder(SourcesFinder):
         self.serpapi = serpapi
 
     def find_sources(self, claim: str) -> list[str]:
+        from utils import SERPAPI_KEY
         params = {
             "engine": "google_light",
             "q": claim,
@@ -106,12 +112,12 @@ class SerpApiSourcesFinder(SourcesFinder):
         filtered_urls = [url for url in urls if self.reliable_sources_regex.match(url)]
 
         if not filtered_urls:
-            print(f"\n=> No reliable sources found for this claim: {claim}\nHere are some unreliable ones instead.")
-            print_list(urls)
+            logger.warning(f"\n=> No reliable sources found for this claim: {claim}\nHere are some unreliable ones instead.")
+            logger.info(f"Unreliable sources found:\n{urls}")
         else:
-            print(f"\n=> Found {len(filtered_urls)} reliable sources for claim: {claim}")
-            print_list(filtered_urls)
-        
+            logger.info(f"\n=> Found {len(filtered_urls)} reliable sources for claim: {claim}")
+            logger.info(f"Reliable sources found:\n{filtered_urls}")
+
         return filtered_urls
 
 class DemoSourcesFinder(SourcesFinder):
@@ -131,10 +137,13 @@ class NLIModel(ABC):
 
 class HuggingFaceNLIModel(NLIModel):
     def __init__(self, model_name: str) -> None:
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
 
     def recognise_textual_entailment(self, premise: str, hypothesis: str) -> Relation:
+        import torch
+        import torch.nn.functional as F
         inputs = self.tokenizer.encode_plus(premise, hypothesis, return_tensors="pt", truncation=True)
         with torch.no_grad():
             logits = self.model(**inputs).logits

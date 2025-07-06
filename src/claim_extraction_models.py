@@ -10,7 +10,8 @@ import nltk
 import re
 
 import logging
-from utils import print_list, DEVICE
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 nltk.download('punkt')
 
@@ -76,15 +77,15 @@ class OllamaClaimExtractor(ClaimExtractor):
 
     def extract_claims(self, text: str) -> list[str]:
         if text.strip() == "":
-            logging.debug("=> No text provided for claim extraction. Returning empty list.")
+            logger.warning("=> No text provided for claim extraction. Returning empty list.")
             return []
 
         claims: list[str] = self.proposition_generator.invoke({
             "document": text
         }).claims
 
-        logging.debug(f"\n=> Extracted claims from the text:\n")
-        print_list(claims)
+        logger.info(f"\n=> Extracted claims from the text:\n")
+        logger.info(f"Extracted claims from the text:\n{claims}")
 
         # No longer cleaning up claims because it could mess up the decontextualisation process
         # # Cleaning up claims
@@ -99,8 +100,8 @@ class OllamaClaimExtractor(ClaimExtractor):
         # claims = [claim.strip() for claim in claims if claim.strip()]
 
         # if DEBUG_MODE:
-        #     print(f"\n=> Cleaned claims from the text:\n")
-        #     print_list(claims)
+        #     logger.info(f"\n=> Cleaned claims from the text:\n")
+        #     logger.info(f"Cleaned claims from the text:\n{claims}")
 
         return claims
 
@@ -117,6 +118,9 @@ class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
         self.start_marker = '<s>'
         self.end_marker = '</s>'
         self.separator = '\n'
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {self.device}")
 
     def create_propositions_input(self, text: str) -> str:
         input_sents = nltk.tokenize.sent_tokenize(text)
@@ -138,7 +142,7 @@ class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
 
     def extract_claims(self, text: str) -> list[str]:
         messages = [{'role': 'user', 'content': self.create_propositions_input(text)}]
-        inputs = self.tokenizer.apply_chat_template(messages, return_tensors='pt', add_generation_prompt=True, return_dict=True).to(DEVICE)
+        inputs = self.tokenizer.apply_chat_template(messages, return_tensors='pt', add_generation_prompt=True, return_dict=True).to(self.device)
 
         output = self.model.generate(**inputs, max_new_tokens=4096, do_sample=False)
         generated_text = self.tokenizer.batch_decode(output[:, inputs['input_ids'].shape[1]:], skip_special_tokens=True)[0]

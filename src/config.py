@@ -1,10 +1,19 @@
-INPUT_URL = "https://edition.cnn.com/2023/10/29/sport/nfl-week-8-how-to-watch-spt-intl/index.html" #"https://www.theguardian.com/science/brain-flapping/2014/nov/25/climate-change-is-an-obvious-myth-how-much-more-evidence-do-you-need" # must not be same as EXAMPLE_URL
+"""
+Swapstation for AI Fact-Check
+Swap out models and configurations and algorithm styles here.
+
+main.py imports everything from this file, so only keep constants. Other stuff goes in utils.py.
+"""
+
+
+#"https://www.theguardian.com/science/brain-flapping/2014/nov/25/climate-change-is-an-obvious-myth-how-much-more-evidence-do-you-need"
+INPUT_URL = "https://edition.cnn.com/2023/10/29/sport/nfl-week-8-how-to-watch-spt-intl/index.html"
 # To use hardcoded text instead of loading it from URLs, set HARDCODED_TEXT to a non-empty string.
 HARDCODED_TEXT = """"""
 
 
-from other_models import NewspaperTextLoader
-TEXT_LOADER = NewspaperTextLoader()
+from other_models import TextFromURLLoader, NewspaperTextLoader
+TEXT_LOADER: TextFromURLLoader = NewspaperTextLoader()
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 TEXT_SPLITTER = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
