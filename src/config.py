@@ -6,10 +6,11 @@ main.py imports everything from this file, so only keep constants. Other stuff g
 """
 
 
+from pydantic import HttpUrl
 #"https://www.theguardian.com/science/brain-flapping/2014/nov/25/climate-change-is-an-obvious-myth-how-much-more-evidence-do-you-need"
-INPUT_URL = "https://edition.cnn.com/2023/10/29/sport/nfl-week-8-how-to-watch-spt-intl/index.html"
+INPUT_URL: HttpUrl = HttpUrl("https://edition.cnn.com/2023/10/29/sport/nfl-week-8-how-to-watch-spt-intl/index.html")
 # To use hardcoded text instead of loading it from URLs, set HARDCODED_TEXT to a non-empty string.
-HARDCODED_TEXT = """"""
+HARDCODED_TEXT = """What I’m suggesting is we have a sort of an eco-evangelical hysteria going on and it leads me to almost wonder if we are becoming a nation of environmental hypochondriacs that are willing to use the power of the state to impose enormous restrictions on the rights and the comforts of, and incomes of individuals who serve essentially a paranoia, a phobia, that has very little fact evidence in fact. Now these are observations that are popular to make because right now it's almost taken as an article of faith that this crisis is real. Let me say I take it as an article of faith if the Lord God almighty made the heavens and the Earth, and He made them to His satisfaction and it is quite pretentious of we little weaklings here on earth to think that, that we are going to destroy God’s creation."""
 
 
 from other_models import TextFromURLLoader, NewspaperTextLoader

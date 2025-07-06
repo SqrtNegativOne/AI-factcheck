@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 from utils import Relation
 
+from pydantic import HttpUrl
+
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -86,7 +88,7 @@ class SourcesFinder(ABC):
             self.reliable_sources_regex: re.Pattern[str] = pickle.load(f)
 
     @abstractmethod
-    def find_sources(self, claim: str) -> list[str]:
+    def find_sources(self, claim: str) -> list[HttpUrl]:
         pass
     
 class SerpApiSourcesFinder(SourcesFinder):
@@ -96,37 +98,39 @@ class SerpApiSourcesFinder(SourcesFinder):
         import serpapi
         self.serpapi = serpapi
 
-    def find_sources(self, claim: str) -> list[str]:
         from utils import SERPAPI_KEY
+        if not SERPAPI_KEY:
+            raise ValueError("SERPAPI_KEY is not set. Please provide a valid API key.")
+        self.serpapi_key = SERPAPI_KEY
+
+    def find_sources(self, claim: str) -> list[HttpUrl]:
+
         params = {
             "engine": "google_light",
             "q": claim,
-            "api_key": SERPAPI_KEY,
+            "api_key": self.serpapi_key,
         }
         search = self.serpapi.search(params)
 
-        urls = []
+        urls: list[HttpUrl] = []
         for result in search.get("organic_results", []):
-            urls.append(result.get("link"))
-
-        filtered_urls = [url for url in urls if self.reliable_sources_regex.match(url)]
-
-        if not filtered_urls:
-            logger.warning(f"\n=> No reliable sources found for this claim: {claim}\nHere are some unreliable ones instead.")
-            logger.info(f"Unreliable sources found:\n{urls}")
-        else:
-            logger.info(f"\n=> Found {len(filtered_urls)} reliable sources for claim: {claim}")
-            logger.info(f"Reliable sources found:\n{filtered_urls}")
-
-        return filtered_urls
+            url_str: str = result.get("link")
+            if self.reliable_sources_regex.match(url_str):
+                urls.append(HttpUrl(url_str))
+        
+        return urls
 
 class DemoSourcesFinder(SourcesFinder):
-    def find_sources(self, claim: str) -> list[str]:
+    def find_sources(self, claim: str) -> list[HttpUrl]:
         return []
 
 class SearXNGSourcesFinder(SourcesFinder):
-    def find_sources(self, claim: str) -> list[str]:
+    def find_sources(self, claim: str) -> list[HttpUrl]:
         raise NotImplementedError("SearXNGSourcesFinder is not implemented yet.")
+
+class SerperAPISourcesFinder(SourcesFinder):
+    def find_sources(self, claim: str) -> list[HttpUrl]:
+        raise NotImplementedError("SerperAPISourcesFinder is not implemented yet.")
 
 
 
