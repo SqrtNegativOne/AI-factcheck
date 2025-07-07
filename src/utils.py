@@ -26,6 +26,19 @@ class Relation(Enum):
     CONTRADICTION = "contradiction"
     NEUTRAL = "neutral"
 
+
+ASCII_ART = r"""
+
+           _____   ______      _____ _______ _____ _    _ ______ _____ _  __
+     /\   |_   _| |  ____/\   / ____|__   __/ ____| |  | |  ____/ ____| |/ /
+    /  \    | |   | |__ /  \ | |       | | | |    | |__| | |__ | |    | ' / 
+   / /\ \   | |   |  __/ /\ \| |       | | | |    |  __  |  __|| |    |  <  
+  / ____ \ _| |_  | | / ____ \ |____   | | | |____| |  | | |___| |____| . \ 
+ /_/    \_\_____| |_|/_/    \_\_____|  |_|  \_____|_|  |_|______\_____|_|\_\
+                                                                            
+                                                                            
+"""
+
 # This file is used to store configuration and utility functions that are shared across the project.
 # Not supposed to be run directly, but can be imported by other modules.
 if __name__ == "__main__":

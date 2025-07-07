@@ -2,7 +2,7 @@ from pydantic import HttpUrl, BaseModel, Field
 import pandas as pd
 import tldextract
 
-from utils import MBFC_PATH, Relation
+from utils import MBFC_PATH, Relation, ASCII_ART
 from config import *
 
 import os
@@ -183,7 +183,7 @@ def findings(claims: list[Proposition], sources_urls: set[str], contradictions: 
             logger.info(f"- {claims[claim_index]}")
 
 def main():
-    print("AI Fact-Check v0.2")
+    print(ASCII_ART)
     if not HARDCODED_TEXT:
         print(f"Input URL: {INPUT_URL}")
         lookup_source_bias(INPUT_URL)
