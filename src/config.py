@@ -20,18 +20,20 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 TEXT_SPLITTER = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
 
-from claim_extraction_models import OllamaClaimExtractor, NonDecontextualiser, NonFalsifiabilityChecker
-CLAIM_EXTRACTOR = OllamaClaimExtractor(model_name='qwen:7b-chat')
+from claim_extraction_models import ClaimExtractor, Gemma_APS_Claim_Extractor
+CLAIM_EXTRACTOR: ClaimExtractor = Gemma_APS_Claim_Extractor()
 DECONTEXTUALISE = False
 if DECONTEXTUALISE:
-    CLAIM_DECONTEXTUALISER = NonDecontextualiser()
+    from claim_extraction_models import Decontextualiser, NonDecontextualiser
+    CLAIM_DECONTEXTUALISER: Decontextualiser = NonDecontextualiser()
 CHECK_FALSIFIABILITY = False
 if CHECK_FALSIFIABILITY:
-    CLAIM_FALSIFIABILITY_CHECKER = NonFalsifiabilityChecker()
+    from claim_extraction_models import FalsifiabilityChecker, NonFalsifiabilityChecker
+    CLAIM_FALSIFIABILITY_CHECKER: FalsifiabilityChecker = NonFalsifiabilityChecker()
 
 
-from other_models import SerpApiSourcesFinder
-SEARCH_API = SerpApiSourcesFinder()
+from other_models import SourcesFinder, SerpApiSourcesFinder
+SEARCH_API: SourcesFinder = SerpApiSourcesFinder()
 
 
 from other_models import NLIModel, HuggingFaceNLIModel
@@ -42,7 +44,7 @@ EMBED_SOURCE_CLAIMS: bool = True # If False, it will run the NLI model on each p
 
 
 from langchain_huggingface import HuggingFaceEmbeddings
-EMBEDDING_MODEL: HuggingFaceEmbeddings = HuggingFaceEmbeddings(
+EMBEDDING_MODEL = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-mpnet-base-v2"
 )
 from langchain_community.vectorstores import FAISS

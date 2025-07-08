@@ -1,21 +1,12 @@
-from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
-from langchain.output_parsers import PydanticOutputParser
-from langchain_ollama import OllamaLLM
-from langchain_core.prompts import ChatPromptTemplate, FewShotChatMessagePromptTemplate
-
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-import nltk
-import re
+from pydantic import BaseModel, Field
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-nltk.download('punkt')
-
 def create_claim_extraction_prompt_template():
+    from langchain_core.prompts import ChatPromptTemplate, FewShotChatMessagePromptTemplate
 
     proposition_examples = [
         {"document": 
@@ -69,20 +60,26 @@ class ClaimExtractor(ABC):
 
 class OllamaClaimExtractor(ClaimExtractor):
     def __init__(self, model_name: str) -> None:
+        from langchain_ollama import OllamaLLM
+        from langchain.output_parsers import PydanticOutputParser
 
-        structured_llm = OllamaLLM(model=model_name, temperature=0.0) # .with_structured_output(Claims) # OllamaLLM does not support structured output yet
+        llm = OllamaLLM(model=model_name, temperature=0) # .with_structured_output(Claims) # OllamaLLM does not support structured output yet
         parser = PydanticOutputParser(pydantic_object=Claims)
         prompt = create_claim_extraction_prompt_template()
-        self.proposition_generator = prompt | structured_llm | parser
+        self.proposition_generator = prompt | llm | parser
 
     def extract_claims(self, text: str) -> list[str]:
         if text.strip() == "":
             logger.warning("=> No text provided for claim extraction. Returning empty list.")
             return []
 
-        claims: list[str] = self.proposition_generator.invoke({
-            "document": text
-        }).claims
+        try:
+            claims: list[str] = self.proposition_generator.invoke({
+                "document": text
+            }).claims
+        except Exception as e:
+            logger.error(f"Error during claim extraction: {e}")
+            return []
 
         logger.info(f"\n=> Extracted claims from the text:\n")
         logger.info(f"Extracted claims from the text:\n{claims}")
@@ -105,9 +102,17 @@ class OllamaClaimExtractor(ClaimExtractor):
 
         return claims
 
-class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
-    def __init__(self):
-        model_id = 'google/gemma-7b-aps-it'
+class Gemma_APS_Claim_Extractor(ClaimExtractor):
+    def __init__(self, use_7b_params = False) -> None:
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        import torch
+        import nltk
+        self.nltk = nltk
+        import re
+        self.re = re
+
+        self.nltk.download('punkt')
+        model_id = 'google/gemma-2b-aps-it' if not use_7b_params else 'google/gemma-7b-aps-it'
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
@@ -123,7 +128,7 @@ class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
         logger.info(f"Using device: {self.device}")
 
     def create_propositions_input(self, text: str) -> str:
-        input_sents = nltk.tokenize.sent_tokenize(text)
+        input_sents = self.nltk.tokenize.sent_tokenize(text)
         propositions_input = ''
         for sent in input_sents:
             propositions_input += f'{self.start_marker} ' + sent + f' {self.end_marker}{self.separator}'
@@ -131,8 +136,8 @@ class Gemma_7B_APS_Claim_Extractor(ClaimExtractor):
         return propositions_input
 
     def process_propositions_output(self, text):
-        pattern = re.compile(f'{re.escape(self.start_marker)}(.*?){re.escape(self.end_marker)}', re.DOTALL)
-        output_grouped_strs = re.findall(pattern, text)
+        pattern = self.re.compile(f'{self.re.escape(self.start_marker)}(.*?){self.re.escape(self.end_marker)}', self.re.DOTALL)
+        output_grouped_strs = self.re.findall(pattern, text)
         predicted_grouped_propositions = []
         for grouped_str in output_grouped_strs:
             grouped_str = grouped_str.strip(self.separator)
