@@ -27,7 +27,6 @@ def lookup_source_bias(news_url: HttpUrl) -> None:
         'Domain': domain,
         'Bias': row.get('bias_rating', 'N/A'),
         'Factual Reporting': row.get('factual_reporting_rating', 'N/A'),
-        'Type': 'N/A',
         #'Notes': f"Matched from: {row.get('site_name', '')}"
     }
     for k, v in results.items():
@@ -92,6 +91,10 @@ def verify_atomic_claim(
     pair_relation: PairRelation | None = None
 
     for source_url in search_results:
+
+        if str(source_url) == str(proposition_to_check_object.url):
+            logger.info(f"\n=> Skipping source {source_url} as it is the same as the proposition URL {proposition_to_check_object.url}.")
+            continue
 
         file_path = os.path.join("faiss", extract_domain(source_url), "index.faiss")
 
@@ -209,4 +212,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logger.info("Initialisation complete.")
     main()

@@ -182,4 +182,4 @@ class NonFalsifiabilityChecker(FalsifiabilityChecker):
     
 
 if __name__ == "__main__":
-    pass
+    logging.error("This module is not intended to be run directly. Please import it in your main application.")
