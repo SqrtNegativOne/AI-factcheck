@@ -157,6 +157,10 @@ class NLIModel(ABC):
     def recognise_textual_entailment(self, premise: str, hypothesis: str) -> Relation:
         pass
 
+    def recognise_textual_entailment_batch(self, premises: list[str], hypothesis: str) -> list[Relation]:
+        """Batch version — defaults to sequential calls. Override for GPU efficiency."""
+        return [self.recognise_textual_entailment(p, hypothesis) for p in premises]
+
 class HuggingFaceNLIModel(NLIModel):
     def __init__(self, model_name: str) -> None:
         from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -171,6 +175,26 @@ class HuggingFaceNLIModel(NLIModel):
             logits = self.model(**inputs).logits
             probs = F.softmax(logits, dim=-1)
         return [Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT][int(probs.argmax().item())]
+
+    def recognise_textual_entailment_batch(self, premises: list[str], hypothesis: str) -> list[Relation]:
+        import torch
+        import torch.nn.functional as F
+        if not premises:
+            return []
+        device = next(self.model.parameters()).device
+        inputs = self.tokenizer(
+            premises,
+            [hypothesis] * len(premises),
+            return_tensors="pt",
+            truncation=True,
+            padding=True,
+            max_length=512,
+        ).to(device)
+        with torch.no_grad():
+            logits = self.model(**inputs).logits
+            probs = F.softmax(logits, dim=-1)
+        label_map = [Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT]
+        return [label_map[int(p.argmax().item())] for p in probs]
 
 
 if __name__ == "__main__":
