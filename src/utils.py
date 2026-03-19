@@ -11,13 +11,15 @@ import os
 from dotenv import load_dotenv
 load_dotenv(BASE_DIR / ".env")
 SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "")
+SERPER_KEY: str = os.getenv("SERPER_KEY", "")
+TAVILY_KEY: str = os.getenv("TAVILY_KEY", "")
 HF_KEY: str = os.getenv("HF_KEY", "")
 
-# Log in to Hugging Face Hub
+# Log in to Hugging Face Hub only when a key is provided.
+# Non-gated models (e.g. cross-encoder/nli-deberta-v3-base) work without login.
 from huggingface_hub import login
-if HF_KEY == "":
-    raise ValueError("HF_KEY not found in environment variables")
-login(token=HF_KEY)
+if HF_KEY:
+    login(token=HF_KEY)
 
 # Used by NLI models and main.py, therefore stored here
 from enum import Enum

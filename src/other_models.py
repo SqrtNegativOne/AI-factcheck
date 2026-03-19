@@ -147,8 +147,76 @@ class SearXNGSourcesFinder(SourcesFinder):
         raise NotImplementedError("SearXNGSourcesFinder is not implemented yet.")
 
 class SerperAPISourcesFinder(SourcesFinder):
+    """Serper.dev — Google-quality results. ~2,500 free searches/month, then $0.30/1K.
+    Requires SERPER_KEY in .env."""
+    def __init__(self) -> None:
+        super().__init__()
+        import requests
+        self.requests = requests
+        from utils import SERPER_KEY
+        if not SERPER_KEY:
+            raise ValueError("SERPER_KEY is not set. Get one at https://serper.dev")
+        self.api_key = SERPER_KEY
+
     def find_sources(self, claim: str) -> list[HttpUrl]:
-        raise NotImplementedError("SerperAPISourcesFinder is not implemented yet.")
+        response = self.requests.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
+            json={"q": claim, "num": 10},
+            timeout=10,
+        )
+        response.raise_for_status()
+        urls: list[HttpUrl] = []
+        for result in response.json().get("organic", []):
+            url_str: str = result.get("link", "")
+            if url_str and self.reliable_sources_regex.match(url_str):
+                urls.append(HttpUrl(url_str))
+        return urls
+
+
+class DuckDuckGoSourcesFinder(SourcesFinder):
+    """Free DuckDuckGo search — no API key required.
+    May rate-limit under heavy use; good for development and low-volume production."""
+    def __init__(self, max_results: int = 10) -> None:
+        super().__init__()
+        from duckduckgo_search import DDGS
+        self.ddgs = DDGS()
+        self.max_results = max_results
+
+    def find_sources(self, claim: str) -> list[HttpUrl]:
+        urls: list[HttpUrl] = []
+        try:
+            results = self.ddgs.text(claim, max_results=self.max_results)
+        except Exception as e:
+            logger.warning(f"DuckDuckGo search failed for claim '{claim[:60]}...': {e}")
+            return []
+        for result in results:
+            url_str: str = result.get("href", "")
+            if url_str and self.reliable_sources_regex.match(url_str):
+                urls.append(HttpUrl(url_str))
+        return urls
+
+
+class TavilySourcesFinder(SourcesFinder):
+    """Tavily — LLM-optimised search that returns pre-extracted content.
+    1,000 free searches/month. Requires TAVILY_KEY in .env."""
+    def __init__(self, max_results: int = 10) -> None:
+        super().__init__()
+        from tavily import TavilyClient
+        from utils import TAVILY_KEY
+        if not TAVILY_KEY:
+            raise ValueError("TAVILY_KEY is not set. Get one at https://tavily.com")
+        self.client = TavilyClient(api_key=TAVILY_KEY)
+        self.max_results = max_results
+
+    def find_sources(self, claim: str) -> list[HttpUrl]:
+        response = self.client.search(claim, max_results=self.max_results)
+        urls: list[HttpUrl] = []
+        for result in response.get("results", []):
+            url_str: str = result.get("url", "")
+            if url_str and self.reliable_sources_regex.match(url_str):
+                urls.append(HttpUrl(url_str))
+        return urls
 
 
 
@@ -162,19 +230,41 @@ class NLIModel(ABC):
         return [self.recognise_textual_entailment(p, hypothesis) for p in premises]
 
 class HuggingFaceNLIModel(NLIModel):
+    """NLI model loaded from HuggingFace.
+
+    Good choices (all non-gated):
+    - 'cross-encoder/nli-deberta-v3-base'      ~86M params, beats roberta-large on MNLI
+    - 'MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli'  304M, SOTA on ANLI
+    - 'roberta-large-mnli'                      355M, solid baseline
+    """
     def __init__(self, model_name: str) -> None:
         from transformers import AutoTokenizer, AutoModelForSequenceClassification
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
 
+        # Build label map from model config so any model works regardless of label order
+        id2label: dict = self.model.config.id2label
+        self._label_map: list[Relation] = []
+        for i in range(len(id2label)):
+            raw = id2label[i].lower()
+            if "entail" in raw:
+                self._label_map.append(Relation.ENTAILMENT)
+            elif "contradict" in raw:
+                self._label_map.append(Relation.CONTRADICTION)
+            else:
+                self._label_map.append(Relation.NEUTRAL)
+        logger.info(f"NLI label map for {model_name}: {[r.value for r in self._label_map]}")
+
     def recognise_textual_entailment(self, premise: str, hypothesis: str) -> Relation:
         import torch
         import torch.nn.functional as F
+        device = next(self.model.parameters()).device
         inputs = self.tokenizer.encode_plus(premise, hypothesis, return_tensors="pt", truncation=True)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
         with torch.no_grad():
             logits = self.model(**inputs).logits
             probs = F.softmax(logits, dim=-1)
-        return [Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT][int(probs.argmax().item())]
+        return self._label_map[int(probs.argmax().item())]
 
     def recognise_textual_entailment_batch(self, premises: list[str], hypothesis: str) -> list[Relation]:
         import torch
@@ -193,8 +283,7 @@ class HuggingFaceNLIModel(NLIModel):
         with torch.no_grad():
             logits = self.model(**inputs).logits
             probs = F.softmax(logits, dim=-1)
-        label_map = [Relation.CONTRADICTION, Relation.NEUTRAL, Relation.ENTAILMENT]
-        return [label_map[int(p.argmax().item())] for p in probs]
+        return [self._label_map[int(p.argmax().item())] for p in probs]
 
 
 if __name__ == "__main__":
