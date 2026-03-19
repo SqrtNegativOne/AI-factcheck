@@ -8,7 +8,7 @@ import os
 from utils import MBFC_PATH, Relation, ASCII_ART
 from config import *
 
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 
 import logging
 logger = logging.getLogger(__name__)
