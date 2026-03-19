@@ -158,6 +158,62 @@ class Gemma_APS_Claim_Extractor(ClaimExtractor):
 
 
 
+class AnthropicClaimExtractor(ClaimExtractor):
+    """Claim extractor using the Anthropic API (Claude).
+
+    Recommended models:
+    - 'claude-haiku-4-5-20251001'   fastest, cheapest ($1/M in, $5/M out)
+    - 'claude-sonnet-4-6'           stronger reasoning, higher cost
+
+    Requires ANTHROPIC_API_KEY in .env (or environment).
+    """
+    def __init__(self, model_name: str = "claude-haiku-4-5-20251001") -> None:
+        from langchain_anthropic import ChatAnthropic
+        from langchain.output_parsers import PydanticOutputParser
+
+        llm = ChatAnthropic(model=model_name, temperature=0).with_structured_output(Claims)
+        prompt = create_claim_extraction_prompt_template()
+        self.proposition_generator = prompt | llm
+
+    def extract_claims(self, text: str) -> list[str]:
+        if not text.strip():
+            return []
+        try:
+            result = self.proposition_generator.invoke({"document": text})
+            return result.claims if hasattr(result, "claims") else []
+        except Exception as e:
+            logger.error(f"Anthropic claim extraction error: {e}")
+            return []
+
+
+class OpenAIClaimExtractor(ClaimExtractor):
+    """Claim extractor using the OpenAI API.
+
+    Recommended models:
+    - 'gpt-4o-mini'   cheapest capable option ($0.15/M in, $0.60/M out)
+    - 'gpt-4o'        higher quality, higher cost
+
+    Requires OPENAI_API_KEY in .env (or environment).
+    """
+    def __init__(self, model_name: str = "gpt-4o-mini") -> None:
+        from langchain_openai import ChatOpenAI
+        from langchain.output_parsers import PydanticOutputParser
+
+        llm = ChatOpenAI(model=model_name, temperature=0).with_structured_output(Claims)
+        prompt = create_claim_extraction_prompt_template()
+        self.proposition_generator = prompt | llm
+
+    def extract_claims(self, text: str) -> list[str]:
+        if not text.strip():
+            return []
+        try:
+            result = self.proposition_generator.invoke({"document": text})
+            return result.claims if hasattr(result, "claims") else []
+        except Exception as e:
+            logger.error(f"OpenAI claim extraction error: {e}")
+            return []
+
+
 class Decontextualiser(ABC):
     @abstractmethod
     def decontextualise(self, before: str, text: str, after: str) -> str:
