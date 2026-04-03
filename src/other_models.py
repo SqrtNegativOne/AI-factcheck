@@ -91,6 +91,31 @@ class TrafilaturaTextLoader(TextFromURLLoader):
         self.show_text(text)
         return text
 
+class NewsPleaseTextLoader(TextFromURLLoader):
+    """news-please — structured news article extractor with broad site support.
+    Extracts maintext, title, authors, and publish date from news URLs.
+    Install: pip install news-please"""
+    def __init__(self, include_title: bool = True) -> None:
+        super().__init__()
+        try:
+            from newsplease import NewsPlease
+        except ImportError:
+            raise ImportError("Please install the news-please package: pip install news-please")
+        self.NewsPlease = NewsPlease
+        self.include_title = include_title
+
+    def load_text(self, url: str) -> str:
+        article = self.NewsPlease.from_url(url)
+        if article is None:
+            raise ValueError(f"news-please failed to fetch article from {url}.")
+        text = article.maintext
+        if not text:
+            raise ValueError(f"news-please extracted no text from {url}.")
+        if self.include_title and article.title:
+            text = f"{article.title}\n\n{text}"
+        self.show_text(text)
+        return text
+
 
 
 class SourcesFinder(ABC):
