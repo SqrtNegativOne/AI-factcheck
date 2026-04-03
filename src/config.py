@@ -18,6 +18,10 @@ HARDCODED_TEXT = "" #"""What I'm suggesting is we have a sort of an eco-evangeli
 from other_models import TextFromURLLoader, TrafilaturaTextLoader
 TEXT_LOADER: TextFromURLLoader = TrafilaturaTextLoader()
 
+# news-please — structured extractor with broad news site support (pip install news-please):
+# from other_models import NewsPleaseTextLoader
+# TEXT_LOADER: TextFromURLLoader = NewsPleaseTextLoader()
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 TEXT_SPLITTER = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 

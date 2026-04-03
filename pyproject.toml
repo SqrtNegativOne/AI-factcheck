@@ -26,6 +26,7 @@ dependencies = [
     "tavily-python>=0.7.23",
     "tldextract>=5.3.1",
     "torch>=2.10.0",
+    "news-please>=1.6.0",
     "trafilatura>=2.0.0",
     "transformers>=5.3.0",
 ]
